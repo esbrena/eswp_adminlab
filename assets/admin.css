@@ -97,6 +97,15 @@
     vertical-align: top;
 }
 
+.cad-wrap #cad-meta-table .cad-meta-key-input {
+    width: 100%;
+    max-width: 100%;
+}
+
+.cad-wrap #cad-meta-table .cad-meta-value-input {
+    min-height: 84px;
+}
+
 .cad-wrap .cad-filter-form .search-box {
     float: none;
     margin: 0 0 12px;
@@ -116,6 +125,14 @@
 
 .cad-wrap #cad-meta-table textarea {
     min-height: 60px;
+}
+
+.cad-wrap .cad-filter-form {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 10px 0 12px;
 }
 
 .cad-wrap .cad-checkbox-grid {
@@ -146,6 +163,12 @@
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
     gap: 12px;
+}
+
+.cad-wrap .cad-multi-select {
+    width: 100%;
+    max-width: 720px;
+    min-height: 180px;
 }
 
 .cad-wrap .button-primary {

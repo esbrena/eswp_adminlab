@@ -31,10 +31,20 @@ class CAD_Access_Control {
                 'allowed_post_types'        => array('post'),
                 'show_plugins_section'      => 1,
                 'allowed_plugin_menus'      => array(),
+                'extra_visible_top_menus'   => array(),
+                'hidden_top_menus'          => array(),
+                'extra_visible_submenus'    => array(),
+                'hidden_submenus'           => array(),
+                'extra_capabilities'        => array(),
                 'show_profile_menu'         => 1,
                 'hide_wp_dashboard_widgets' => 1,
                 'hide_admin_bar_items'      => 1,
                 'hide_wp_notices'           => 1,
+            ),
+            'integrations'   => array(
+                'course_post_types'       => array('sfwd-courses', 'lp_course', 'tutor_course', 'course'),
+                'booking_post_types'      => array('wc_booking', 'bookly_appointment', 'booking'),
+                'user_relation_meta_keys' => array('user_id', 'customer_id', 'student_id', 'attendee_id', '_customer_user'),
             ),
             'branding'       => array(
                 'logo_url'              => '',
@@ -74,6 +84,9 @@ class CAD_Access_Control {
         $normalized['ui'] = self::sanitize_ui_settings(
             isset($normalized['ui']) ? $normalized['ui'] : array()
         );
+        $normalized['integrations'] = self::sanitize_integration_settings(
+            isset($normalized['integrations']) ? $normalized['integrations'] : array()
+        );
         $normalized['branding'] = self::sanitize_branding_settings(
             isset($normalized['branding']) ? $normalized['branding'] : array()
         );
@@ -107,6 +120,14 @@ class CAD_Access_Control {
     public function get_branding_settings() {
         $settings = $this->get_settings();
         return isset($settings['branding']) && is_array($settings['branding']) ? $settings['branding'] : array();
+    }
+
+    /**
+     * @return array
+     */
+    public function get_integration_settings() {
+        $settings = $this->get_settings();
+        return isset($settings['integrations']) && is_array($settings['integrations']) ? $settings['integrations'] : array();
     }
 
     /**
@@ -288,6 +309,10 @@ class CAD_Access_Control {
             self::CAP_MANAGE_BOOKINGS,
         );
 
+        $ui = isset($settings['ui']) && is_array($settings['ui']) ? $settings['ui'] : array();
+        $extra_caps = isset($ui['extra_capabilities']) ? self::sanitize_capability_list($ui['extra_capabilities']) : array();
+        $caps = array_values(array_unique(array_merge($caps, $extra_caps)));
+
         foreach ($roles as $role_key) {
             $role = get_role($role_key);
             if (! $role instanceof WP_Role) {
@@ -404,12 +429,43 @@ class CAD_Access_Control {
 
         $ui['allowed_post_types']   = self::sanitize_post_type_list($ui['allowed_post_types']);
         $ui['allowed_plugin_menus'] = self::sanitize_menu_slug_list($ui['allowed_plugin_menus']);
+        $ui['extra_visible_top_menus'] = self::sanitize_menu_slug_list($ui['extra_visible_top_menus']);
+        $ui['hidden_top_menus'] = self::sanitize_menu_slug_list($ui['hidden_top_menus']);
+        $ui['extra_visible_submenus'] = self::sanitize_submenu_id_list($ui['extra_visible_submenus']);
+        $ui['hidden_submenus'] = self::sanitize_submenu_id_list($ui['hidden_submenus']);
+        $ui['extra_capabilities'] = self::sanitize_capability_list($ui['extra_capabilities']);
 
         if (! empty($ui['show_posts_section']) && empty($ui['allowed_post_types'])) {
             $ui['allowed_post_types'] = array('post');
         }
 
         return $ui;
+    }
+
+    /**
+     * @param mixed $integration
+     *
+     * @return array
+     */
+    public static function sanitize_integration_settings($integration) {
+        $defaults = self::get_default_settings();
+        $defaults = isset($defaults['integrations']) ? $defaults['integrations'] : array();
+
+        if (! is_array($integration)) {
+            $integration = array();
+        }
+
+        $integration = wp_parse_args($integration, $defaults);
+
+        $integration['course_post_types'] = self::sanitize_post_type_list($integration['course_post_types']);
+        $integration['booking_post_types'] = self::sanitize_post_type_list($integration['booking_post_types']);
+        $integration['user_relation_meta_keys'] = self::sanitize_meta_key_list($integration['user_relation_meta_keys']);
+
+        if (empty($integration['user_relation_meta_keys'])) {
+            $integration['user_relation_meta_keys'] = $defaults['user_relation_meta_keys'];
+        }
+
+        return $integration;
     }
 
     /**
@@ -474,6 +530,75 @@ class CAD_Access_Control {
         }
 
         return $sanitized ? $sanitized : '#2271b1';
+    }
+
+    /**
+     * @param mixed $keys
+     *
+     * @return array
+     */
+    public static function sanitize_meta_key_list($keys) {
+        if (! is_array($keys)) {
+            $keys = array();
+        }
+
+        $sanitized = array();
+        foreach ($keys as $key) {
+            $clean = preg_replace('/[^a-zA-Z0-9_\-]/', '', (string) $key);
+            $clean = trim((string) $clean);
+            if ($clean !== '') {
+                $sanitized[] = $clean;
+            }
+        }
+
+        return array_values(array_unique($sanitized));
+    }
+
+    /**
+     * @param mixed $submenu_ids
+     *
+     * @return array
+     */
+    public static function sanitize_submenu_id_list($submenu_ids) {
+        if (! is_array($submenu_ids)) {
+            $submenu_ids = array();
+        }
+
+        $sanitized = array();
+        foreach ($submenu_ids as $submenu_id) {
+            $submenu_id = sanitize_text_field((string) $submenu_id);
+            $submenu_id = preg_replace('/[^a-zA-Z0-9_\-\.\?=\/&:]/', '', (string) $submenu_id);
+            $submenu_id = trim((string) $submenu_id);
+            if ($submenu_id === '' || strpos($submenu_id, '::') === false) {
+                continue;
+            }
+            $sanitized[] = $submenu_id;
+        }
+
+        return array_values(array_unique($sanitized));
+    }
+
+    /**
+     * @param mixed $caps
+     *
+     * @return array
+     */
+    public static function sanitize_capability_list($caps) {
+        if (! is_array($caps)) {
+            $caps = array();
+        }
+
+        $sanitized = array();
+        foreach ($caps as $cap) {
+            $cap = sanitize_key((string) $cap);
+            if ($cap === '') {
+                continue;
+            }
+
+            $sanitized[] = $cap;
+        }
+
+        return array_values(array_unique($sanitized));
     }
 
     /**

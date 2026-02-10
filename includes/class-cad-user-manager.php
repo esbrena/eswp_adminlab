@@ -310,26 +310,37 @@ class CAD_User_Manager {
                     </tbody>
                 </table>
 
+                <?php $this->render_user_related_activity_panels($user_id); ?>
+
                 <h2><?php esc_html_e('Metadatos', 'custom-admin-dashboard'); ?></h2>
                 <p><?php esc_html_e('Puedes editar metadatos existentes y agregar nuevos. Si el valor es JSON valido (objeto/array), se guardara como estructura.', 'custom-admin-dashboard'); ?></p>
+
+                <p class="cad-filter-form">
+                    <label for="cad-meta-filter">
+                        <strong><?php esc_html_e('Filtrar metadatos', 'custom-admin-dashboard'); ?>:</strong>
+                    </label>
+                    <input type="search" id="cad-meta-filter" class="regular-text" placeholder="<?php esc_attr_e('Escribe clave meta o parte del valor...', 'custom-admin-dashboard'); ?>" />
+                    <button type="button" class="button" id="cad-sort-meta-rows"><?php esc_html_e('Ordenar por clave', 'custom-admin-dashboard'); ?></button>
+                    <span id="cad-meta-visible-count" class="description"></span>
+                </p>
 
                 <table class="widefat striped cad-table" id="cad-meta-table">
                     <thead>
                         <tr>
-                            <th><?php esc_html_e('Clave meta', 'custom-admin-dashboard'); ?></th>
+                            <th style="width: 28%;"><?php esc_html_e('Clave meta', 'custom-admin-dashboard'); ?></th>
                             <th><?php esc_html_e('Valor', 'custom-admin-dashboard'); ?></th>
-                            <th><?php esc_html_e('Eliminar', 'custom-admin-dashboard'); ?></th>
+                            <th style="width: 120px;"><?php esc_html_e('Eliminar', 'custom-admin-dashboard'); ?></th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php if (! empty($meta_rows)) : ?>
                             <?php foreach ($meta_rows as $index => $row) : ?>
-                                <tr>
+                                <tr class="cad-meta-row" data-meta-key="<?php echo esc_attr(strtolower($row['key'])); ?>">
                                     <td>
-                                        <input type="text" class="regular-text" name="meta_keys[]" value="<?php echo esc_attr($row['key']); ?>" />
+                                        <input type="text" class="regular-text cad-meta-key-input" name="meta_keys[]" value="<?php echo esc_attr($row['key']); ?>" />
                                     </td>
                                     <td>
-                                        <textarea class="large-text code" rows="2" name="meta_values[]"><?php echo esc_textarea($row['value']); ?></textarea>
+                                        <textarea class="large-text code cad-meta-value-input" rows="3" name="meta_values[]"><?php echo esc_textarea($row['value']); ?></textarea>
                                     </td>
                                     <td>
                                         <label>
@@ -340,9 +351,9 @@ class CAD_User_Manager {
                                 </tr>
                             <?php endforeach; ?>
                         <?php endif; ?>
-                        <tr class="cad-meta-empty-row">
-                            <td><input type="text" class="regular-text" name="meta_keys[]" value="" /></td>
-                            <td><textarea class="large-text code" rows="2" name="meta_values[]"></textarea></td>
+                        <tr class="cad-meta-empty-row cad-meta-row" data-meta-key="">
+                            <td><input type="text" class="regular-text cad-meta-key-input" name="meta_keys[]" value="" /></td>
+                            <td><textarea class="large-text code cad-meta-value-input" rows="3" name="meta_values[]"></textarea></td>
                             <td>-</td>
                         </tr>
                     </tbody>
@@ -358,19 +369,110 @@ class CAD_User_Manager {
         <script>
             (function() {
                 var addButton = document.getElementById('cad-add-meta-row');
+                var sortButton = document.getElementById('cad-sort-meta-rows');
+                var filterInput = document.getElementById('cad-meta-filter');
+                var visibleCount = document.getElementById('cad-meta-visible-count');
                 var tableBody = document.querySelector('#cad-meta-table tbody');
                 if (!addButton || !tableBody) {
                     return;
                 }
 
+                function getRows() {
+                    return Array.prototype.slice.call(tableBody.querySelectorAll('tr.cad-meta-row'));
+                }
+
+                function refreshVisibleCount() {
+                    if (!visibleCount) {
+                        return;
+                    }
+                    var rows = getRows();
+                    var visible = rows.filter(function(row) {
+                        return row.style.display !== 'none';
+                    }).length;
+                    visibleCount.textContent = visible + ' / ' + rows.length + ' <?php echo esc_js(__('metadatos visibles', 'custom-admin-dashboard')); ?>';
+                }
+
+                function applyFilter() {
+                    if (!filterInput) {
+                        refreshVisibleCount();
+                        return;
+                    }
+                    var query = (filterInput.value || '').toLowerCase().trim();
+                    var rows = getRows();
+                    rows.forEach(function(row) {
+                        var keyInput = row.querySelector('.cad-meta-key-input');
+                        var valueInput = row.querySelector('.cad-meta-value-input');
+                        var key = keyInput ? (keyInput.value || '').toLowerCase() : '';
+                        var value = valueInput ? (valueInput.value || '').toLowerCase() : '';
+                        var match = query === '' || key.indexOf(query) !== -1 || value.indexOf(query) !== -1;
+                        row.style.display = match ? '' : 'none';
+                    });
+                    refreshVisibleCount();
+                }
+
+                function updateRowKeyCache(row) {
+                    if (!row) {
+                        return;
+                    }
+                    var keyInput = row.querySelector('.cad-meta-key-input');
+                    if (!keyInput) {
+                        return;
+                    }
+                    row.setAttribute('data-meta-key', (keyInput.value || '').toLowerCase());
+                }
+
                 addButton.addEventListener('click', function() {
                     var row = document.createElement('tr');
+                    row.className = 'cad-meta-row';
+                    row.setAttribute('data-meta-key', '');
                     row.innerHTML =
-                        '<td><input type="text" class="regular-text" name="meta_keys[]" value="" /></td>' +
-                        '<td><textarea class="large-text code" rows="2" name="meta_values[]"></textarea></td>' +
+                        '<td><input type="text" class="regular-text cad-meta-key-input" name="meta_keys[]" value="" /></td>' +
+                        '<td><textarea class="large-text code cad-meta-value-input" rows="3" name="meta_values[]"></textarea></td>' +
                         '<td>-</td>';
                     tableBody.appendChild(row);
+                    bindRowEvents(row);
+                    applyFilter();
                 });
+
+                function bindRowEvents(row) {
+                    var keyInput = row.querySelector('.cad-meta-key-input');
+                    if (keyInput) {
+                        keyInput.addEventListener('input', function() {
+                            updateRowKeyCache(row);
+                            applyFilter();
+                        });
+                    }
+                    var valueInput = row.querySelector('.cad-meta-value-input');
+                    if (valueInput) {
+                        valueInput.addEventListener('input', applyFilter);
+                    }
+                }
+
+                getRows().forEach(function(row) {
+                    bindRowEvents(row);
+                    updateRowKeyCache(row);
+                });
+
+                if (filterInput) {
+                    filterInput.addEventListener('input', applyFilter);
+                }
+
+                if (sortButton) {
+                    sortButton.addEventListener('click', function() {
+                        var rows = getRows();
+                        rows.sort(function(a, b) {
+                            var keyA = (a.getAttribute('data-meta-key') || '').trim();
+                            var keyB = (b.getAttribute('data-meta-key') || '').trim();
+                            return keyA.localeCompare(keyB);
+                        });
+                        rows.forEach(function(row) {
+                            tableBody.appendChild(row);
+                        });
+                        applyFilter();
+                    });
+                }
+
+                applyFilter();
             })();
         </script>
         <?php
@@ -607,6 +709,223 @@ class CAD_User_Manager {
             $roles[$key] = isset($data['name']) ? $data['name'] : $key;
         }
         return $roles;
+    }
+
+    /**
+     * Render related courses/bookings from configured integrations.
+     *
+     * @param int $user_id
+     */
+    private function render_user_related_activity_panels($user_id) {
+        $integrations = $this->access_control->get_integration_settings();
+        $course_post_types = isset($integrations['course_post_types']) ? (array) $integrations['course_post_types'] : array();
+        $booking_post_types = isset($integrations['booking_post_types']) ? (array) $integrations['booking_post_types'] : array();
+        $relation_meta_keys = isset($integrations['user_relation_meta_keys']) ? (array) $integrations['user_relation_meta_keys'] : array();
+
+        $course_post_types = $this->get_valid_post_types($course_post_types);
+        $booking_post_types = $this->get_valid_post_types($booking_post_types);
+        $relation_meta_keys = CAD_Access_Control::sanitize_meta_key_list($relation_meta_keys);
+
+        if (empty($course_post_types) && empty($booking_post_types)) {
+            return;
+        }
+
+        $course_posts = ! empty($course_post_types)
+            ? $this->get_related_posts_for_user($user_id, $course_post_types, $relation_meta_keys, 12)
+            : array();
+
+        $booking_posts = ! empty($booking_post_types)
+            ? $this->get_related_posts_for_user($user_id, $booking_post_types, $relation_meta_keys, 12)
+            : array();
+        ?>
+        <h2><?php esc_html_e('Actividad del usuario: cursos y reservas', 'custom-admin-dashboard'); ?></h2>
+        <div class="cad-grid">
+            <div class="cad-card">
+                <h3><?php esc_html_e('Cursos relacionados', 'custom-admin-dashboard'); ?></h3>
+                <?php $this->render_related_posts_table($course_posts, __('No se han encontrado cursos para este usuario.', 'custom-admin-dashboard')); ?>
+            </div>
+            <div class="cad-card">
+                <h3><?php esc_html_e('Reservas relacionadas', 'custom-admin-dashboard'); ?></h3>
+                <?php $this->render_related_posts_table($booking_posts, __('No se han encontrado reservas para este usuario.', 'custom-admin-dashboard')); ?>
+            </div>
+        </div>
+        <?php
+    }
+
+    /**
+     * @param array  $posts
+     * @param string $empty_message
+     */
+    private function render_related_posts_table($posts, $empty_message) {
+        if (empty($posts)) {
+            echo '<p>' . esc_html($empty_message) . '</p>';
+            return;
+        }
+        ?>
+        <table class="widefat striped cad-table">
+            <thead>
+                <tr>
+                    <th><?php esc_html_e('ID', 'custom-admin-dashboard'); ?></th>
+                    <th><?php esc_html_e('Titulo', 'custom-admin-dashboard'); ?></th>
+                    <th><?php esc_html_e('Tipo', 'custom-admin-dashboard'); ?></th>
+                    <th><?php esc_html_e('Estado', 'custom-admin-dashboard'); ?></th>
+                    <th><?php esc_html_e('Fecha', 'custom-admin-dashboard'); ?></th>
+                    <th><?php esc_html_e('Acciones', 'custom-admin-dashboard'); ?></th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($posts as $post) : ?>
+                    <?php
+                    if (! $post instanceof WP_Post) {
+                        continue;
+                    }
+
+                    $post_id = (int) $post->ID;
+                    $edit_link = get_edit_post_link($post_id, 'raw');
+                    $view_link = get_permalink($post_id);
+                    $post_type_object = get_post_type_object($post->post_type);
+                    $type_label = $post_type_object && ! empty($post_type_object->labels->singular_name)
+                        ? (string) $post_type_object->labels->singular_name
+                        : (string) $post->post_type;
+                    ?>
+                    <tr>
+                        <td><?php echo esc_html((string) $post_id); ?></td>
+                        <td><?php echo esc_html(get_the_title($post_id)); ?></td>
+                        <td><?php echo esc_html($type_label); ?></td>
+                        <td><?php echo esc_html((string) get_post_status($post_id)); ?></td>
+                        <td><?php echo esc_html((string) get_the_date('Y-m-d H:i', $post_id)); ?></td>
+                        <td>
+                            <?php if ($edit_link) : ?>
+                                <a class="button button-small" href="<?php echo esc_url($edit_link); ?>"><?php esc_html_e('Editar', 'custom-admin-dashboard'); ?></a>
+                            <?php endif; ?>
+                            <?php if ($view_link) : ?>
+                                <a class="button button-small" target="_blank" rel="noopener noreferrer" href="<?php echo esc_url($view_link); ?>"><?php esc_html_e('Ver', 'custom-admin-dashboard'); ?></a>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+        <?php
+    }
+
+    /**
+     * @param int   $user_id
+     * @param array $post_types
+     * @param array $relation_meta_keys
+     * @param int   $limit
+     *
+     * @return array
+     */
+    private function get_related_posts_for_user($user_id, $post_types, $relation_meta_keys, $limit = 12) {
+        $user_id = absint($user_id);
+        if ($user_id <= 0) {
+            return array();
+        }
+
+        $post_types = $this->get_valid_post_types($post_types);
+        if (empty($post_types)) {
+            return array();
+        }
+
+        $limit = max(1, absint($limit));
+        $relation_meta_keys = CAD_Access_Control::sanitize_meta_key_list($relation_meta_keys);
+
+        $post_ids = array();
+
+        $author_posts = get_posts(
+            array(
+                'post_type'              => $post_types,
+                'post_status'            => 'any',
+                'author'                 => $user_id,
+                'posts_per_page'         => $limit,
+                'fields'                 => 'ids',
+                'orderby'                => 'date',
+                'order'                  => 'DESC',
+                'update_post_meta_cache' => false,
+                'update_post_term_cache' => false,
+            )
+        );
+        $post_ids = array_merge($post_ids, array_map('intval', (array) $author_posts));
+
+        foreach ($relation_meta_keys as $meta_key) {
+            $exact_matches = get_posts(
+                array(
+                    'post_type'              => $post_types,
+                    'post_status'            => 'any',
+                    'posts_per_page'         => $limit,
+                    'fields'                 => 'ids',
+                    'meta_key'               => $meta_key,
+                    'meta_value'             => (string) $user_id,
+                    'orderby'                => 'date',
+                    'order'                  => 'DESC',
+                    'update_post_meta_cache' => false,
+                    'update_post_term_cache' => false,
+                )
+            );
+            $post_ids = array_merge($post_ids, array_map('intval', (array) $exact_matches));
+
+            $serialized_matches = get_posts(
+                array(
+                    'post_type'              => $post_types,
+                    'post_status'            => 'any',
+                    'posts_per_page'         => $limit,
+                    'fields'                 => 'ids',
+                    'meta_query'             => array(
+                        array(
+                            'key'     => $meta_key,
+                            'value'   => '"' . (string) $user_id . '"',
+                            'compare' => 'LIKE',
+                        ),
+                    ),
+                    'orderby'                => 'date',
+                    'order'                  => 'DESC',
+                    'update_post_meta_cache' => false,
+                    'update_post_term_cache' => false,
+                )
+            );
+            $post_ids = array_merge($post_ids, array_map('intval', (array) $serialized_matches));
+        }
+
+        $post_ids = array_values(array_unique(array_filter($post_ids)));
+        if (empty($post_ids)) {
+            return array();
+        }
+
+        $posts = get_posts(
+            array(
+                'post_type'              => $post_types,
+                'post_status'            => 'any',
+                'post__in'               => $post_ids,
+                'posts_per_page'         => max($limit, count($post_ids)),
+                'orderby'                => 'date',
+                'order'                  => 'DESC',
+                'update_post_meta_cache' => false,
+                'update_post_term_cache' => false,
+            )
+        );
+
+        if (count($posts) > $limit) {
+            $posts = array_slice($posts, 0, $limit);
+        }
+
+        return $posts;
+    }
+
+    /**
+     * @param array $post_types
+     *
+     * @return array
+     */
+    private function get_valid_post_types($post_types) {
+        $post_types = CAD_Access_Control::sanitize_post_type_list((array) $post_types);
+        $result = array();
+        foreach ($post_types as $post_type) {
+            if (post_type_exists($post_type)) {
+                $result[] = $post_type;
+            }
+        }
+        return array_values(array_unique($result));
     }
 
     /**

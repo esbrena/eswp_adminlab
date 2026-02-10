@@ -102,6 +102,14 @@ class CAD_Admin_Panel {
             return;
         }
 
+        $ui = $this->access_control->get_ui_settings();
+        $extra_visible_submenus = CAD_Access_Control::sanitize_submenu_id_list(
+            isset($ui['extra_visible_submenus']) ? $ui['extra_visible_submenus'] : array()
+        );
+        $hidden_submenus = CAD_Access_Control::sanitize_submenu_id_list(
+            isset($ui['hidden_submenus']) ? $ui['hidden_submenus'] : array()
+        );
+
         $allowed_top = $this->get_allowed_top_level_menu_slugs_for_operational_admin();
         $allowed_sub = $this->get_allowed_submenu_slugs_for_operational_admin($allowed_top);
 
@@ -133,7 +141,16 @@ class CAD_Admin_Panel {
                     continue;
                 }
 
-                if (! in_array($submenu_slug, $allowed_sub, true)) {
+                $submenu_id = $this->build_submenu_id($parent_slug, $submenu_slug);
+                $is_explicit_visible = in_array($submenu_id, $extra_visible_submenus, true);
+                $is_explicit_hidden  = in_array($submenu_id, $hidden_submenus, true);
+
+                if ($is_explicit_hidden) {
+                    unset($submenu[$parent_slug][$item_index]);
+                    continue;
+                }
+
+                if (! in_array($submenu_slug, $allowed_sub, true) && ! $is_explicit_visible) {
                     unset($submenu[$parent_slug][$item_index]);
                 }
             }
@@ -178,12 +195,24 @@ class CAD_Admin_Panel {
             'allowed_post_types'        => isset($_POST['ui_allowed_post_types']) ? (array) wp_unslash($_POST['ui_allowed_post_types']) : array(),
             'show_plugins_section'      => isset($_POST['ui_show_plugins_section']) ? 1 : 0,
             'allowed_plugin_menus'      => isset($_POST['ui_allowed_plugin_menus']) ? (array) wp_unslash($_POST['ui_allowed_plugin_menus']) : array(),
+            'extra_visible_top_menus'   => isset($_POST['ui_extra_visible_top_menus']) ? (array) wp_unslash($_POST['ui_extra_visible_top_menus']) : array(),
+            'hidden_top_menus'          => isset($_POST['ui_hidden_top_menus']) ? (array) wp_unslash($_POST['ui_hidden_top_menus']) : array(),
+            'extra_visible_submenus'    => isset($_POST['ui_extra_visible_submenus']) ? (array) wp_unslash($_POST['ui_extra_visible_submenus']) : array(),
+            'hidden_submenus'           => isset($_POST['ui_hidden_submenus']) ? (array) wp_unslash($_POST['ui_hidden_submenus']) : array(),
+            'extra_capabilities'        => isset($_POST['ui_extra_capabilities']) ? explode(',', sanitize_text_field(wp_unslash($_POST['ui_extra_capabilities']))) : array(),
             'show_profile_menu'         => isset($_POST['ui_show_profile_menu']) ? 1 : 0,
             'hide_wp_dashboard_widgets' => isset($_POST['ui_hide_wp_dashboard_widgets']) ? 1 : 0,
             'hide_admin_bar_items'      => isset($_POST['ui_hide_admin_bar_items']) ? 1 : 0,
             'hide_wp_notices'           => isset($_POST['ui_hide_wp_notices']) ? 1 : 0,
         );
         $ui_input = CAD_Access_Control::sanitize_ui_settings($ui_input);
+
+        $integration_input = array(
+            'course_post_types'       => isset($_POST['integration_course_post_types']) ? explode(',', sanitize_text_field(wp_unslash($_POST['integration_course_post_types']))) : array(),
+            'booking_post_types'      => isset($_POST['integration_booking_post_types']) ? explode(',', sanitize_text_field(wp_unslash($_POST['integration_booking_post_types']))) : array(),
+            'user_relation_meta_keys' => isset($_POST['integration_user_relation_meta_keys']) ? explode(',', sanitize_text_field(wp_unslash($_POST['integration_user_relation_meta_keys']))) : array(),
+        );
+        $integration_input = CAD_Access_Control::sanitize_integration_settings($integration_input);
 
         $branding_input = array(
             'logo_url'              => isset($_POST['branding_logo_url']) ? wp_unslash($_POST['branding_logo_url']) : '',
@@ -202,6 +231,7 @@ class CAD_Admin_Panel {
         $settings['force_redirect'] = isset($_POST['force_redirect']) ? 1 : 0;
         $settings['hide_menus']     = isset($_POST['hide_menus']) ? 1 : 0;
         $settings['ui']             = $ui_input;
+        $settings['integrations']   = $integration_input;
         $settings['branding']       = $branding_input;
         $settings                   = CAD_Access_Control::normalize_settings($settings);
 
@@ -488,6 +518,7 @@ class CAD_Admin_Panel {
 
         $settings = $this->access_control->get_settings();
         $ui = $this->access_control->get_ui_settings();
+        $integrations = $this->access_control->get_integration_settings();
         $branding = $this->access_control->get_branding_settings();
 
         $roles = wp_roles();
@@ -497,6 +528,31 @@ class CAD_Admin_Panel {
         $plugin_candidates = $this->get_plugin_menu_candidates();
         $selected_plugin_menus = CAD_Access_Control::sanitize_menu_slug_list($ui['allowed_plugin_menus']);
         $unknown_plugin_menus = array_diff($selected_plugin_menus, array_keys($plugin_candidates));
+        $all_top_menu_candidates = $this->get_all_top_menu_candidates();
+        $all_submenu_candidates = $this->get_all_submenu_candidates();
+
+        $extra_visible_top_menus = CAD_Access_Control::sanitize_menu_slug_list(
+            isset($ui['extra_visible_top_menus']) ? $ui['extra_visible_top_menus'] : array()
+        );
+        $hidden_top_menus = CAD_Access_Control::sanitize_menu_slug_list(
+            isset($ui['hidden_top_menus']) ? $ui['hidden_top_menus'] : array()
+        );
+        $extra_visible_submenus = CAD_Access_Control::sanitize_submenu_id_list(
+            isset($ui['extra_visible_submenus']) ? $ui['extra_visible_submenus'] : array()
+        );
+        $hidden_submenus = CAD_Access_Control::sanitize_submenu_id_list(
+            isset($ui['hidden_submenus']) ? $ui['hidden_submenus'] : array()
+        );
+        $extra_capabilities = implode(
+            ', ',
+            CAD_Access_Control::sanitize_capability_list(
+                isset($ui['extra_capabilities']) ? $ui['extra_capabilities'] : array()
+            )
+        );
+
+        $course_post_types = implode(', ', isset($integrations['course_post_types']) ? (array) $integrations['course_post_types'] : array());
+        $booking_post_types = implode(', ', isset($integrations['booking_post_types']) ? (array) $integrations['booking_post_types'] : array());
+        $relation_meta_keys = implode(', ', isset($integrations['user_relation_meta_keys']) ? (array) $integrations['user_relation_meta_keys'] : array());
         ?>
         <div class="wrap cad-wrap">
             <?php $this->render_brand_header(__('Configuracion de visibilidad y branding', 'custom-admin-dashboard')); ?>
@@ -640,10 +696,77 @@ class CAD_Admin_Panel {
                                 </label>
                             </td>
                         </tr>
+                        <tr>
+                            <th scope="row"><label for="cad-extra-capabilities"><?php esc_html_e('Capabilities extra para plugins', 'custom-admin-dashboard'); ?></label></th>
+                            <td>
+                                <input type="text" id="cad-extra-capabilities" class="regular-text" name="ui_extra_capabilities" value="<?php echo esc_attr($extra_capabilities); ?>" />
+                                <p class="description"><?php esc_html_e('Opcional. Separadas por coma. Ejemplo: manage_options, manage_woocommerce, edit_others_posts', 'custom-admin-dashboard'); ?></p>
+                            </td>
+                        </tr>
                     </tbody>
                 </table>
 
-                <h2><?php esc_html_e('3) Limpieza de contenido innecesario de WordPress', 'custom-admin-dashboard'); ?></h2>
+                <h2><?php esc_html_e('3) Control avanzado de menus y submenus', 'custom-admin-dashboard'); ?></h2>
+                <table class="form-table" role="presentation">
+                    <tbody>
+                        <tr>
+                            <th scope="row"><?php esc_html_e('Menus principales visibles extra', 'custom-admin-dashboard'); ?></th>
+                            <td>
+                                <select name="ui_extra_visible_top_menus[]" multiple="multiple" size="10" class="cad-multi-select">
+                                    <?php foreach ($all_top_menu_candidates as $menu_slug => $menu_data) : ?>
+                                        <option value="<?php echo esc_attr($menu_slug); ?>" <?php selected(in_array($menu_slug, $extra_visible_top_menus, true)); ?>>
+                                            <?php echo esc_html($menu_data['label']); ?> [<?php echo esc_html($menu_slug); ?>]
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <p class="description"><?php esc_html_e('Agrega menus principales que quieras mostrar aunque no esten en el modo guiado.', 'custom-admin-dashboard'); ?></p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><?php esc_html_e('Menus principales ocultos forzados', 'custom-admin-dashboard'); ?></th>
+                            <td>
+                                <select name="ui_hidden_top_menus[]" multiple="multiple" size="10" class="cad-multi-select">
+                                    <?php foreach ($all_top_menu_candidates as $menu_slug => $menu_data) : ?>
+                                        <option value="<?php echo esc_attr($menu_slug); ?>" <?php selected(in_array($menu_slug, $hidden_top_menus, true)); ?>>
+                                            <?php echo esc_html($menu_data['label']); ?> [<?php echo esc_html($menu_slug); ?>]
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <p class="description"><?php esc_html_e('Oculta menus principales de forma explicita.', 'custom-admin-dashboard'); ?></p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><?php esc_html_e('Submenus visibles extra', 'custom-admin-dashboard'); ?></th>
+                            <td>
+                                <select name="ui_extra_visible_submenus[]" multiple="multiple" size="12" class="cad-multi-select">
+                                    <?php foreach ($all_submenu_candidates as $submenu_id => $submenu_data) : ?>
+                                        <option value="<?php echo esc_attr($submenu_id); ?>" <?php selected(in_array($submenu_id, $extra_visible_submenus, true)); ?>>
+                                            <?php echo esc_html($submenu_data['parent_label'] . ' > ' . $submenu_data['label']); ?>
+                                            [<?php echo esc_html($submenu_data['submenu_slug']); ?>]
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <p class="description"><?php esc_html_e('Permite submenus concretos de forma granular.', 'custom-admin-dashboard'); ?></p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><?php esc_html_e('Submenus ocultos forzados', 'custom-admin-dashboard'); ?></th>
+                            <td>
+                                <select name="ui_hidden_submenus[]" multiple="multiple" size="12" class="cad-multi-select">
+                                    <?php foreach ($all_submenu_candidates as $submenu_id => $submenu_data) : ?>
+                                        <option value="<?php echo esc_attr($submenu_id); ?>" <?php selected(in_array($submenu_id, $hidden_submenus, true)); ?>>
+                                            <?php echo esc_html($submenu_data['parent_label'] . ' > ' . $submenu_data['label']); ?>
+                                            [<?php echo esc_html($submenu_data['submenu_slug']); ?>]
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <p class="description"><?php esc_html_e('Oculta submenus especificos aunque pertenezcan a un menu permitido.', 'custom-admin-dashboard'); ?></p>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h2><?php esc_html_e('4) Limpieza de contenido innecesario de WordPress', 'custom-admin-dashboard'); ?></h2>
                 <table class="form-table" role="presentation">
                     <tbody>
                         <tr>
@@ -676,7 +799,34 @@ class CAD_Admin_Panel {
                     </tbody>
                 </table>
 
-                <h2><?php esc_html_e('4) Branding y personalizacion visual', 'custom-admin-dashboard'); ?></h2>
+                <h2><?php esc_html_e('5) Integracion cursos y reservas por usuario', 'custom-admin-dashboard'); ?></h2>
+                <table class="form-table" role="presentation">
+                    <tbody>
+                        <tr>
+                            <th scope="row"><label for="cad-integration-course-post-types"><?php esc_html_e('Post types de cursos', 'custom-admin-dashboard'); ?></label></th>
+                            <td>
+                                <input type="text" id="cad-integration-course-post-types" class="regular-text" name="integration_course_post_types" value="<?php echo esc_attr($course_post_types); ?>" />
+                                <p class="description"><?php esc_html_e('Separados por coma. Se usan para mostrar cursos en la ficha del usuario.', 'custom-admin-dashboard'); ?></p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><label for="cad-integration-booking-post-types"><?php esc_html_e('Post types de reservas', 'custom-admin-dashboard'); ?></label></th>
+                            <td>
+                                <input type="text" id="cad-integration-booking-post-types" class="regular-text" name="integration_booking_post_types" value="<?php echo esc_attr($booking_post_types); ?>" />
+                                <p class="description"><?php esc_html_e('Separados por coma. Se usan para mostrar reservas en la ficha del usuario.', 'custom-admin-dashboard'); ?></p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><label for="cad-integration-relation-meta-keys"><?php esc_html_e('Claves meta que relacionan usuario', 'custom-admin-dashboard'); ?></label></th>
+                            <td>
+                                <input type="text" id="cad-integration-relation-meta-keys" class="regular-text" name="integration_user_relation_meta_keys" value="<?php echo esc_attr($relation_meta_keys); ?>" />
+                                <p class="description"><?php esc_html_e('Ejemplo: user_id, customer_id, _customer_user, student_id', 'custom-admin-dashboard'); ?></p>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h2><?php esc_html_e('6) Branding y personalizacion visual', 'custom-admin-dashboard'); ?></h2>
                 <table class="form-table" role="presentation">
                     <tbody>
                         <tr>
@@ -780,7 +930,32 @@ class CAD_Admin_Panel {
             );
         }
 
-        $allowed = array_values(array_unique($allowed));
+        $allowed = array_merge(
+            $allowed,
+            CAD_Access_Control::sanitize_menu_slug_list(
+                isset($ui['extra_visible_top_menus']) ? $ui['extra_visible_top_menus'] : array()
+            )
+        );
+
+        $hidden = CAD_Access_Control::sanitize_menu_slug_list(
+            isset($ui['hidden_top_menus']) ? $ui['hidden_top_menus'] : array()
+        );
+
+        $allowed = array_values(array_unique(array_diff($allowed, $hidden)));
+
+        $extra_visible_submenus = CAD_Access_Control::sanitize_submenu_id_list(
+            isset($ui['extra_visible_submenus']) ? $ui['extra_visible_submenus'] : array()
+        );
+        foreach ($extra_visible_submenus as $submenu_id) {
+            $decoded = $this->decode_submenu_id($submenu_id);
+            if (! empty($decoded['parent_slug']) && ! in_array($decoded['parent_slug'], $hidden, true)) {
+                $allowed[] = $decoded['parent_slug'];
+            }
+        }
+
+        if (! in_array('cad-dashboard', $allowed, true)) {
+            $allowed[] = 'cad-dashboard';
+        }
 
         /**
          * Filter allowed top-level menu slugs for operational admins.
@@ -829,6 +1004,26 @@ class CAD_Admin_Panel {
             $allowed = array_merge($allowed, $this->get_allowed_plugin_submenu_slugs($plugin_top));
         }
 
+        $extra_visible_submenus = CAD_Access_Control::sanitize_submenu_id_list(
+            isset($ui['extra_visible_submenus']) ? $ui['extra_visible_submenus'] : array()
+        );
+        foreach ($extra_visible_submenus as $submenu_id) {
+            $decoded = $this->decode_submenu_id($submenu_id);
+            if (! empty($decoded['submenu_slug'])) {
+                $allowed[] = $decoded['submenu_slug'];
+            }
+        }
+
+        $hidden_submenus = CAD_Access_Control::sanitize_submenu_id_list(
+            isset($ui['hidden_submenus']) ? $ui['hidden_submenus'] : array()
+        );
+        foreach ($hidden_submenus as $submenu_id) {
+            $decoded = $this->decode_submenu_id($submenu_id);
+            if (! empty($decoded['submenu_slug'])) {
+                $allowed = array_diff($allowed, array($decoded['submenu_slug']));
+            }
+        }
+
         if ($this->can_manage_settings()) {
             $allowed[] = 'cad-settings';
         }
@@ -874,33 +1069,53 @@ class CAD_Admin_Panel {
 
         $ui = $this->access_control->get_ui_settings();
         $current_page = isset($_GET['page']) ? sanitize_text_field(wp_unslash($_GET['page'])) : '';
+        $request_method = isset($_SERVER['REQUEST_METHOD']) ? strtoupper((string) $_SERVER['REQUEST_METHOD']) : 'GET';
+
+        // Many plugin actions post back to admin endpoints (options.php/admin-post.php).
+        if ($request_method === 'POST') {
+            return true;
+        }
 
         if ($current_page !== '' && strpos($current_page, 'cad-') === 0) {
             return true;
         }
 
-        if (in_array($pagenow, array('admin-ajax.php', 'async-upload.php', 'update.php'), true)) {
+        if (in_array($pagenow, array('admin-ajax.php', 'async-upload.php', 'update.php', 'admin-post.php', 'options.php'), true)) {
             return true;
         }
 
         if ($pagenow === 'profile.php') {
-            return ! empty($ui['show_profile_menu']);
+            if (! empty($ui['show_profile_menu'])) {
+                return true;
+            }
+
+            return $this->is_allowed_custom_menu_request($pagenow, $current_page, $ui);
         }
 
         if (in_array($pagenow, array('users.php', 'user-edit.php', 'user-new.php'), true)) {
-            return $this->access_control->can_manage_users();
+            if ($this->access_control->can_manage_users()) {
+                return true;
+            }
+
+            return $this->is_allowed_custom_menu_request($pagenow, $current_page, $ui);
         }
 
         if (in_array($pagenow, array('edit.php', 'post.php', 'post-new.php'), true)) {
-            if (empty($ui['show_posts_section'])) {
-                return false;
+            if (! empty($ui['show_posts_section'])) {
+                $post_type = $this->get_request_post_type($pagenow);
+                if ($this->access_control->can_access_post_type($post_type)) {
+                    return true;
+                }
             }
 
-            $post_type = $this->get_request_post_type($pagenow);
-            return $this->access_control->can_access_post_type($post_type);
+            return $this->is_allowed_custom_menu_request($pagenow, $current_page, $ui);
         }
 
         if ($this->is_allowed_plugin_request($pagenow, $ui)) {
+            return true;
+        }
+
+        if ($this->is_allowed_custom_menu_request($pagenow, $current_page, $ui)) {
             return true;
         }
 
@@ -945,16 +1160,64 @@ class CAD_Admin_Panel {
             return true;
         }
 
+        foreach ($allowed_plugin_menus as $plugin_menu_slug) {
+            if ($plugin_menu_slug !== '' && strpos($page, $plugin_menu_slug) === 0) {
+                return true;
+            }
+        }
+
         foreach ($allowed_plugin_submenus as $submenu_slug) {
             if ($submenu_slug === $page) {
                 return true;
             }
 
-            if (strpos($submenu_slug, 'admin.php?page=') === 0) {
-                $submenu_page = substr($submenu_slug, strlen('admin.php?page='));
-                if ($submenu_page === $page) {
-                    return true;
-                }
+            if ($this->menu_slug_matches_request($submenu_slug, $pagenow, $page)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param string $pagenow
+     * @param string $current_page
+     * @param array  $ui
+     *
+     * @return bool
+     */
+    private function is_allowed_custom_menu_request($pagenow, $current_page, $ui) {
+        $allowed_top = CAD_Access_Control::sanitize_menu_slug_list(
+            isset($ui['extra_visible_top_menus']) ? $ui['extra_visible_top_menus'] : array()
+        );
+        $hidden_top = CAD_Access_Control::sanitize_menu_slug_list(
+            isset($ui['hidden_top_menus']) ? $ui['hidden_top_menus'] : array()
+        );
+        $allowed_top = array_values(array_diff($allowed_top, $hidden_top));
+
+        foreach ($allowed_top as $slug) {
+            if ($this->menu_slug_matches_request($slug, $pagenow, $current_page)) {
+                return true;
+            }
+        }
+
+        $allowed_sub = CAD_Access_Control::sanitize_submenu_id_list(
+            isset($ui['extra_visible_submenus']) ? $ui['extra_visible_submenus'] : array()
+        );
+        $hidden_sub = CAD_Access_Control::sanitize_submenu_id_list(
+            isset($ui['hidden_submenus']) ? $ui['hidden_submenus'] : array()
+        );
+        $allowed_sub = array_values(array_diff($allowed_sub, $hidden_sub));
+
+        foreach ($allowed_sub as $submenu_id) {
+            $decoded = $this->decode_submenu_id($submenu_id);
+            $submenu_slug = isset($decoded['submenu_slug']) ? (string) $decoded['submenu_slug'] : '';
+            if ($submenu_slug === '') {
+                continue;
+            }
+
+            if ($this->menu_slug_matches_request($submenu_slug, $pagenow, $current_page)) {
+                return true;
             }
         }
 
@@ -1080,6 +1343,102 @@ class CAD_Admin_Panel {
     /**
      * @return array
      */
+    private function get_all_top_menu_candidates() {
+        global $menu;
+
+        if (! is_array($menu)) {
+            return array();
+        }
+
+        $candidates = array();
+        foreach ($menu as $item) {
+            $slug = isset($item[2]) ? (string) $item[2] : '';
+            if ($slug === '' || strpos($slug, 'separator') === 0) {
+                continue;
+            }
+
+            $label = $this->clean_menu_label(isset($item[0]) ? (string) $item[0] : $slug);
+            $candidates[$slug] = array(
+                'label' => $label !== '' ? $label : $slug,
+                'slug'  => $slug,
+                'url'   => $this->menu_slug_to_url($slug),
+            );
+        }
+
+        uasort(
+            $candidates,
+            function ($a, $b) {
+                $a_label = isset($a['label']) ? (string) $a['label'] : '';
+                $b_label = isset($b['label']) ? (string) $b['label'] : '';
+                return strcasecmp($a_label, $b_label);
+            }
+        );
+
+        return $candidates;
+    }
+
+    /**
+     * @return array
+     */
+    private function get_all_submenu_candidates() {
+        global $submenu;
+
+        if (! is_array($submenu)) {
+            return array();
+        }
+
+        $top_menus = $this->get_all_top_menu_candidates();
+        $result = array();
+
+        foreach ($submenu as $parent_slug => $submenu_items) {
+            if (! is_array($submenu_items)) {
+                continue;
+            }
+
+            $parent_slug = (string) $parent_slug;
+            $parent_label = isset($top_menus[$parent_slug]['label']) ? (string) $top_menus[$parent_slug]['label'] : $parent_slug;
+
+            foreach ($submenu_items as $submenu_item) {
+                $submenu_slug = isset($submenu_item[2]) ? (string) $submenu_item[2] : '';
+                if ($submenu_slug === '') {
+                    continue;
+                }
+
+                $submenu_label = $this->clean_menu_label(isset($submenu_item[0]) ? (string) $submenu_item[0] : $submenu_slug);
+                $submenu_id = $this->build_submenu_id($parent_slug, $submenu_slug);
+
+                $result[$submenu_id] = array(
+                    'submenu_id'   => $submenu_id,
+                    'parent_slug'  => $parent_slug,
+                    'submenu_slug' => $submenu_slug,
+                    'parent_label' => $parent_label,
+                    'label'        => $submenu_label !== '' ? $submenu_label : $submenu_slug,
+                );
+            }
+        }
+
+        uasort(
+            $result,
+            function ($a, $b) {
+                $a_parent = isset($a['parent_label']) ? (string) $a['parent_label'] : '';
+                $b_parent = isset($b['parent_label']) ? (string) $b['parent_label'] : '';
+                $parent_cmp = strcasecmp($a_parent, $b_parent);
+                if ($parent_cmp !== 0) {
+                    return $parent_cmp;
+                }
+
+                $a_label = isset($a['label']) ? (string) $a['label'] : '';
+                $b_label = isset($b['label']) ? (string) $b['label'] : '';
+                return strcasecmp($a_label, $b_label);
+            }
+        );
+
+        return $result;
+    }
+
+    /**
+     * @return array
+     */
     private function get_plugin_menu_candidates() {
         global $menu, $submenu;
 
@@ -1140,6 +1499,95 @@ class CAD_Admin_Panel {
     }
 
     /**
+     * @param string $parent_slug
+     * @param string $submenu_slug
+     *
+     * @return string
+     */
+    private function build_submenu_id($parent_slug, $submenu_slug) {
+        return (string) $parent_slug . '::' . (string) $submenu_slug;
+    }
+
+    /**
+     * @param string $submenu_id
+     *
+     * @return array
+     */
+    private function decode_submenu_id($submenu_id) {
+        $submenu_id = (string) $submenu_id;
+        $parts = explode('::', $submenu_id, 2);
+
+        if (count($parts) !== 2) {
+            return array(
+                'parent_slug'  => '',
+                'submenu_slug' => '',
+            );
+        }
+
+        return array(
+            'parent_slug'  => (string) $parts[0],
+            'submenu_slug' => (string) $parts[1],
+        );
+    }
+
+    /**
+     * Match a menu slug against current admin request.
+     *
+     * @param string $menu_slug
+     * @param string $pagenow
+     * @param string $current_page
+     *
+     * @return bool
+     */
+    private function menu_slug_matches_request($menu_slug, $pagenow, $current_page) {
+        $menu_slug = (string) $menu_slug;
+        if ($menu_slug === '') {
+            return false;
+        }
+
+        if ($menu_slug === $pagenow || $menu_slug === $current_page) {
+            return true;
+        }
+
+        if (strpos($menu_slug, '?') !== false) {
+            $base = strtok($menu_slug, '?');
+            $query = parse_url($menu_slug, PHP_URL_QUERY);
+            $query_args = array();
+            if (is_string($query) && $query !== '') {
+                parse_str($query, $query_args);
+            }
+
+            if ($base === $pagenow) {
+                if (empty($query_args)) {
+                    return true;
+                }
+
+                foreach ($query_args as $arg_key => $arg_value) {
+                    $current_value = isset($_GET[$arg_key]) ? wp_unslash($_GET[$arg_key]) : '';
+                    if (is_array($current_value)) {
+                        return false;
+                    }
+
+                    if ((string) $current_value !== (string) $arg_value) {
+                        return false;
+                    }
+                }
+
+                return true;
+            }
+        }
+
+        if (strpos($menu_slug, 'admin.php?page=') === 0) {
+            $slug_page = substr($menu_slug, strlen('admin.php?page='));
+            if ($current_page !== '' && ($slug_page === $current_page || strpos($current_page, $slug_page) === 0)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * @param string $slug
      *
      * @return string
@@ -1185,6 +1633,16 @@ class CAD_Admin_Panel {
         $css .= '--cad-bg:' . $branding['background_color'] . ';';
         $css .= '--cad-card-bg:' . $branding['card_background_color'] . ';';
         $css .= '}';
+
+        $css .= '.cad-wrap{background:' . $branding['background_color'] . ' !important;}';
+        $css .= '.cad-wrap .cad-card{background:' . $branding['card_background_color'] . ' !important;border-color:rgba(0,0,0,.10) !important;}';
+        $css .= '.cad-wrap .cad-count,.cad-wrap .cad-brand-app-title,.cad-wrap a{color:' . $branding['primary_color'] . ' !important;}';
+        $css .= '.cad-wrap .button-primary{background:' . $branding['primary_color'] . ' !important;border-color:' . $branding['accent_color'] . ' !important;}';
+        $css .= '.cad-wrap .button-primary:hover,.cad-wrap .button-primary:focus{background:' . $branding['accent_color'] . ' !important;border-color:' . $branding['accent_color'] . ' !important;}';
+        $css .= '.cad-wrap .cad-brand-logo{border-color:' . $branding['primary_color'] . '33 !important;}';
+        $css .= '.cad-wrap .cad-checkbox-grid label{border-color:' . $branding['primary_color'] . '33 !important;}';
+        $css .= '#adminmenu .wp-has-current-submenu > a,#adminmenu .current > a{background:' . $branding['accent_color'] . ' !important;}';
+        $css .= '#adminmenu a:hover,#adminmenu a:focus{color:' . $branding['primary_color'] . ' !important;}';
 
         if (! empty($branding['custom_css'])) {
             $css .= "\n" . (string) $branding['custom_css'];
