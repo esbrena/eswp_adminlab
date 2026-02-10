@@ -100,7 +100,7 @@ class CAD_User_Manager {
 
         ?>
         <div class="wrap cad-wrap">
-            <h1><?php esc_html_e('Usuarios', 'custom-admin-dashboard'); ?></h1>
+            <?php $this->render_brand_header(__('Usuarios', 'custom-admin-dashboard')); ?>
             <?php $this->render_notice(); ?>
 
             <form method="get" class="cad-filter-form">
@@ -244,15 +244,14 @@ class CAD_User_Manager {
         );
         ?>
         <div class="wrap cad-wrap">
-            <h1>
-                <?php
-                printf(
-                    /* translators: %s is a username */
-                    esc_html__('Editar usuario: %s', 'custom-admin-dashboard'),
-                    esc_html($user->display_name)
-                );
-                ?>
-            </h1>
+            <?php
+            $title = sprintf(
+                /* translators: %s is a username */
+                __('Editar usuario: %s', 'custom-admin-dashboard'),
+                $user->display_name
+            );
+            $this->render_brand_header($title);
+            ?>
             <a href="<?php echo esc_url($back_url); ?>" class="button">
                 <?php esc_html_e('Volver al listado', 'custom-admin-dashboard'); ?>
             </a>
@@ -658,10 +657,38 @@ class CAD_User_Manager {
 
         $data = $map[$notice];
         printf(
-            '<div class="notice notice-%1$s is-dismissible"><p>%2$s</p></div>',
+            '<div class="notice notice-%1$s is-dismissible cad-keep-notice"><p>%2$s</p></div>',
             esc_attr($data[0]),
             esc_html($data[1])
         );
+    }
+
+    /**
+     * @param string $page_title
+     */
+    private function render_brand_header($page_title) {
+        $branding = $this->access_control->get_branding_settings();
+        $logo_url = isset($branding['logo_url']) ? (string) $branding['logo_url'] : '';
+        $app_title = isset($branding['header_title']) ? (string) $branding['header_title'] : '';
+        $subtitle = isset($branding['header_subtitle']) ? (string) $branding['header_subtitle'] : '';
+        ?>
+        <div class="cad-brand-header">
+            <?php if ($logo_url !== '') : ?>
+                <div class="cad-brand-logo-wrap">
+                    <img src="<?php echo esc_url($logo_url); ?>" class="cad-brand-logo" alt="<?php echo esc_attr($app_title !== '' ? $app_title : 'CAD'); ?>" />
+                </div>
+            <?php endif; ?>
+            <div class="cad-brand-copy">
+                <?php if ($app_title !== '') : ?>
+                    <p class="cad-brand-app-title"><?php echo esc_html($app_title); ?></p>
+                <?php endif; ?>
+                <h1 class="cad-brand-page-title"><?php echo esc_html($page_title); ?></h1>
+                <?php if ($subtitle !== '') : ?>
+                    <p class="cad-brand-subtitle"><?php echo esc_html($subtitle); ?></p>
+                <?php endif; ?>
+            </div>
+        </div>
+        <?php
     }
 
     /**

@@ -66,9 +66,8 @@ class CAD_Plugin {
     public static function activate() {
         require_once CAD_PLUGIN_DIR . 'includes/class-cad-access-control.php';
 
-        $defaults = CAD_Access_Control::get_default_settings();
-        $current  = get_option(CAD_Access_Control::OPTION_KEY, array());
-        $merged   = wp_parse_args($current, $defaults);
+        $current = get_option(CAD_Access_Control::OPTION_KEY, array());
+        $merged  = CAD_Access_Control::normalize_settings($current);
 
         update_option(CAD_Access_Control::OPTION_KEY, $merged);
         CAD_Access_Control::sync_role_caps($merged);

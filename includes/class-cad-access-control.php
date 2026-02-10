@@ -22,12 +22,63 @@ class CAD_Access_Control {
      */
     public static function get_default_settings() {
         return array(
-            'allowed_roles'      => array('administrator', 'admin'),
-            'force_redirect'     => 1,
-            'hide_menus'         => 1,
-            'courses_post_types' => array('sfwd-courses', 'lp_course', 'tutor_course', 'course'),
-            'bookings_post_types'=> array('wc_booking', 'bookly_appointment', 'booking'),
+            'allowed_roles'  => array('administrator', 'admin'),
+            'force_redirect' => 1,
+            'hide_menus'     => 1,
+            'ui'             => array(
+                'show_users_section'        => 1,
+                'show_posts_section'        => 1,
+                'allowed_post_types'        => array('post'),
+                'show_plugins_section'      => 1,
+                'allowed_plugin_menus'      => array(),
+                'show_profile_menu'         => 1,
+                'hide_wp_dashboard_widgets' => 1,
+                'hide_admin_bar_items'      => 1,
+                'hide_wp_notices'           => 1,
+            ),
+            'branding'       => array(
+                'logo_url'              => '',
+                'header_title'          => 'Panel operativo',
+                'header_subtitle'       => 'Entorno simplificado para equipo de administracion',
+                'primary_color'         => '#2271b1',
+                'accent_color'          => '#135e96',
+                'background_color'      => '#f6f7f7',
+                'card_background_color' => '#ffffff',
+                'custom_css'            => '',
+            ),
         );
+    }
+
+    /**
+     * @param mixed $settings
+     *
+     * @return array
+     */
+    public static function normalize_settings($settings) {
+        $defaults = self::get_default_settings();
+
+        if (! is_array($settings)) {
+            $settings = array();
+        }
+
+        $normalized = wp_parse_args($settings, $defaults);
+
+        $normalized['allowed_roles'] = self::sanitize_role_list($normalized['allowed_roles']);
+        if (empty($normalized['allowed_roles'])) {
+            $normalized['allowed_roles'] = array('administrator');
+        }
+
+        $normalized['force_redirect'] = ! empty($normalized['force_redirect']) ? 1 : 0;
+        $normalized['hide_menus']     = ! empty($normalized['hide_menus']) ? 1 : 0;
+
+        $normalized['ui'] = self::sanitize_ui_settings(
+            isset($normalized['ui']) ? $normalized['ui'] : array()
+        );
+        $normalized['branding'] = self::sanitize_branding_settings(
+            isset($normalized['branding']) ? $normalized['branding'] : array()
+        );
+
+        return $normalized;
     }
 
     /**
@@ -36,10 +87,26 @@ class CAD_Access_Control {
     public function get_settings() {
         if (null === $this->settings) {
             $saved          = get_option(self::OPTION_KEY, array());
-            $this->settings = wp_parse_args($saved, self::get_default_settings());
+            $this->settings = self::normalize_settings($saved);
         }
 
         return $this->settings;
+    }
+
+    /**
+     * @return array
+     */
+    public function get_ui_settings() {
+        $settings = $this->get_settings();
+        return isset($settings['ui']) && is_array($settings['ui']) ? $settings['ui'] : array();
+    }
+
+    /**
+     * @return array
+     */
+    public function get_branding_settings() {
+        $settings = $this->get_settings();
+        return isset($settings['branding']) && is_array($settings['branding']) ? $settings['branding'] : array();
     }
 
     /**
@@ -80,8 +147,6 @@ class CAD_Access_Control {
     }
 
     /**
-     * Operational admins are allowed users excluding superadmins.
-     *
      * @return bool
      */
     public function is_current_user_operational_admin() {
@@ -89,8 +154,7 @@ class CAD_Access_Control {
             return false;
         }
 
-        $user_id = get_current_user_id();
-        return ! $this->is_super_admin_user($user_id);
+        return ! $this->is_super_admin_user(get_current_user_id());
     }
 
     /**
@@ -105,6 +169,11 @@ class CAD_Access_Control {
             return true;
         }
 
+        $ui = $this->get_ui_settings();
+        if (empty($ui['show_users_section'])) {
+            return false;
+        }
+
         if (current_user_can(self::CAP_MANAGE_USERS)) {
             return true;
         }
@@ -113,6 +182,37 @@ class CAD_Access_Control {
     }
 
     /**
+     * @param string $post_type
+     *
+     * @return bool
+     */
+    public function can_access_post_type($post_type) {
+        if (! $this->is_current_user_allowed()) {
+            return false;
+        }
+
+        if ($this->is_super_admin_user(get_current_user_id())) {
+            return true;
+        }
+
+        $ui = $this->get_ui_settings();
+        if (empty($ui['show_posts_section'])) {
+            return false;
+        }
+
+        $post_type = sanitize_key((string) $post_type);
+        $allowed   = self::sanitize_post_type_list($ui['allowed_post_types']);
+
+        if (! in_array($post_type, $allowed, true)) {
+            return false;
+        }
+
+        return current_user_can('edit_posts');
+    }
+
+    /**
+     * Legacy capability helper kept for compatibility.
+     *
      * @return bool
      */
     public function can_manage_courses() {
@@ -132,6 +232,8 @@ class CAD_Access_Control {
     }
 
     /**
+     * Legacy capability helper kept for compatibility.
+     *
      * @return bool
      */
     public function can_manage_bookings() {
@@ -172,8 +274,7 @@ class CAD_Access_Control {
      * @param array $settings
      */
     public static function sync_role_caps($settings = array()) {
-        $defaults = self::get_default_settings();
-        $settings = wp_parse_args($settings, $defaults);
+        $settings = self::normalize_settings($settings);
         $roles    = self::sanitize_role_list($settings['allowed_roles']);
 
         if (! in_array('administrator', $roles, true)) {
@@ -246,6 +347,133 @@ class CAD_Access_Control {
         }
 
         return array_values(array_unique($sanitized));
+    }
+
+    /**
+     * @param mixed $slugs
+     *
+     * @return array
+     */
+    public static function sanitize_menu_slug_list($slugs) {
+        if (! is_array($slugs)) {
+            $slugs = array();
+        }
+
+        $sanitized = array();
+        foreach ($slugs as $slug) {
+            $slug = sanitize_text_field((string) $slug);
+            $slug = preg_replace('/[^a-zA-Z0-9_\-\.\?=\/&]/', '', $slug);
+            $slug = trim((string) $slug);
+            if ($slug === '') {
+                continue;
+            }
+            $sanitized[] = $slug;
+        }
+
+        return array_values(array_unique($sanitized));
+    }
+
+    /**
+     * @param mixed $ui
+     *
+     * @return array
+     */
+    public static function sanitize_ui_settings($ui) {
+        $defaults = self::get_default_settings();
+        $defaults = isset($defaults['ui']) ? $defaults['ui'] : array();
+
+        if (! is_array($ui)) {
+            $ui = array();
+        }
+
+        $ui = wp_parse_args($ui, $defaults);
+
+        $flags = array(
+            'show_users_section',
+            'show_posts_section',
+            'show_plugins_section',
+            'show_profile_menu',
+            'hide_wp_dashboard_widgets',
+            'hide_admin_bar_items',
+            'hide_wp_notices',
+        );
+
+        foreach ($flags as $flag) {
+            $ui[$flag] = ! empty($ui[$flag]) ? 1 : 0;
+        }
+
+        $ui['allowed_post_types']   = self::sanitize_post_type_list($ui['allowed_post_types']);
+        $ui['allowed_plugin_menus'] = self::sanitize_menu_slug_list($ui['allowed_plugin_menus']);
+
+        if (! empty($ui['show_posts_section']) && empty($ui['allowed_post_types'])) {
+            $ui['allowed_post_types'] = array('post');
+        }
+
+        return $ui;
+    }
+
+    /**
+     * @param mixed $branding
+     *
+     * @return array
+     */
+    public static function sanitize_branding_settings($branding) {
+        $defaults = self::get_default_settings();
+        $defaults = isset($defaults['branding']) ? $defaults['branding'] : array();
+
+        if (! is_array($branding)) {
+            $branding = array();
+        }
+
+        $branding = wp_parse_args($branding, $defaults);
+
+        $clean = array(
+            'logo_url'              => esc_url_raw((string) $branding['logo_url']),
+            'header_title'          => sanitize_text_field((string) $branding['header_title']),
+            'header_subtitle'       => sanitize_text_field((string) $branding['header_subtitle']),
+            'primary_color'         => self::sanitize_hex_color_with_default(
+                $branding['primary_color'],
+                $defaults['primary_color']
+            ),
+            'accent_color'          => self::sanitize_hex_color_with_default(
+                $branding['accent_color'],
+                $defaults['accent_color']
+            ),
+            'background_color'      => self::sanitize_hex_color_with_default(
+                $branding['background_color'],
+                $defaults['background_color']
+            ),
+            'card_background_color' => self::sanitize_hex_color_with_default(
+                $branding['card_background_color'],
+                $defaults['card_background_color']
+            ),
+            'custom_css'            => '',
+        );
+
+        if ($clean['header_title'] === '') {
+            $clean['header_title'] = (string) $defaults['header_title'];
+        }
+
+        $custom_css = isset($branding['custom_css']) ? (string) $branding['custom_css'] : '';
+        $custom_css = str_replace(array('</style', '<style', '<?', '?>'), '', $custom_css);
+        $clean['custom_css'] = trim($custom_css);
+
+        return $clean;
+    }
+
+    /**
+     * @param mixed  $color
+     * @param string $default
+     *
+     * @return string
+     */
+    private static function sanitize_hex_color_with_default($color, $default) {
+        $sanitized = sanitize_hex_color((string) $color);
+        if (! $sanitized) {
+            $sanitized = sanitize_hex_color((string) $default);
+        }
+
+        return $sanitized ? $sanitized : '#2271b1';
     }
 
     /**
