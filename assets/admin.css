@@ -1,0 +1,59 @@
+.cad-wrap .cad-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 16px;
+    margin-top: 20px;
+    margin-bottom: 24px;
+}
+
+.cad-wrap .cad-card {
+    border: 1px solid #dcdcde;
+    background: #fff;
+    border-radius: 6px;
+    padding: 16px;
+}
+
+.cad-wrap .cad-card h2 {
+    margin-top: 0;
+}
+
+.cad-wrap .cad-count {
+    font-size: 34px;
+    margin: 8px 0 16px;
+    font-weight: 700;
+}
+
+.cad-wrap .cad-quick-links {
+    list-style: disc;
+    padding-left: 20px;
+}
+
+.cad-wrap .cad-quick-links li {
+    margin-bottom: 8px;
+}
+
+.cad-wrap .cad-table td,
+.cad-wrap .cad-table th {
+    vertical-align: top;
+}
+
+.cad-wrap .cad-filter-form .search-box {
+    float: none;
+    margin: 0 0 12px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.cad-wrap .cad-filter-form .search-box input[type="search"] {
+    min-width: 220px;
+}
+
+.cad-wrap .cad-user-form .form-table th {
+    width: 180px;
+}
+
+.cad-wrap #cad-meta-table textarea {
+    min-height: 60px;
+}
