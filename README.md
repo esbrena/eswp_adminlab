@@ -5,11 +5,11 @@ dentro de `wp-admin`, con panel custom y branding.
 
 ## Objetivo
 
-Controlar de forma granular:
+Controlar de forma simple (seleccion directa):
 
 - Que seccion de **usuarios** pueden ver.
 - Que seccion de **posts** pueden ver (incluyendo seleccion por `post_type`).
-- Que **menus principales y submenus** (incluyendo plugins) pueden usar.
+- Que **plugins** pueden usar desde sidebar.
 - Que contenido de WordPress se oculta para simplificar el trabajo.
 
 Ademas, personalizar visualmente el panel:
@@ -28,7 +28,6 @@ Ademas, personalizar visualmente el panel:
 2. **Visibilidad granular de wp-admin**
    - Restriccion de menus top-level y submenus.
    - Aplicacion forzada de reglas de visibilidad (evita que vuelvan menus no permitidos).
-   - Control avanzado: menus/submenus extra visibles y ocultos forzados.
    - Soporte de capabilities extra para que plugins terceros permitan acciones.
    - Acceso selectivo a usuarios.
    - Acceso selectivo a posts por tipo de contenido.
@@ -52,12 +51,7 @@ Ademas, personalizar visualmente el panel:
    - Edicion mejorada de valores largos.
    - Tabla de cursos/reservas ligados por autor o por claves meta de relacion.
 
-6. **Formulario de configuracion mas usable**
-   - Seleccion por checkboxes (sin multi-select con Ctrl/Cmd).
-   - Filtro de texto para listas largas de menus/submenus.
-   - Persistencia de entradas guardadas aunque un menu deje de estar disponible temporalmente.
-
-7. **Branding**
+6. **Branding**
    - Logo, textos de cabecera y colores.
    - CSS custom.
 
@@ -70,7 +64,6 @@ Ademas, personalizar visualmente el panel:
 4. Define:
    - Roles operativos afectados.
    - Que ven en Plugins / Usuarios / Posts.
-   - Que menus y submenus visibles/ocultos quieres forzar de forma custom.
    - Que elementos de WP ocultar.
    - Post types y claves meta para integrar cursos/reservas por usuario.
    - Colores y logo.

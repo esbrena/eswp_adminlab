@@ -165,24 +165,6 @@
     gap: 12px;
 }
 
-.cad-wrap .cad-scroll-list {
-    max-width: 980px;
-    max-height: 280px;
-    overflow: auto;
-    border: 1px solid #dcdcde;
-    border-radius: 6px;
-    padding: 8px;
-    background: #fff;
-}
-
-.cad-wrap .cad-submenu-grid {
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-}
-
-.cad-wrap .cad-list-filter-input {
-    min-width: 260px;
-}
-
 .cad-wrap .button-primary {
     background: var(--cad-primary, #2271b1);
     border-color: var(--cad-accent, #135e96);

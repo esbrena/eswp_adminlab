@@ -283,6 +283,11 @@ class CAD_Access_Control {
             return false;
         }
 
+        // Only multisite has true superadmin semantics.
+        if (! is_multisite()) {
+            return false;
+        }
+
         $user_id = (int) $user_id;
         if ($user_id <= 0) {
             $user_id = get_current_user_id();
