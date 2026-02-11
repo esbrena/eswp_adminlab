@@ -143,6 +143,10 @@ class CAD_Access_Control {
             return false;
         }
 
+        if (user_can($user, 'manage_options')) {
+            return true;
+        }
+
         if ($this->is_super_admin_user($user->ID)) {
             return true;
         }

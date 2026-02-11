@@ -28,10 +28,12 @@ Ademas, personalizar visualmente el panel:
 2. **Visibilidad granular de wp-admin**
    - Restriccion de menus top-level y submenus.
    - Aplicacion forzada de reglas de visibilidad (evita que vuelvan menus no permitidos).
+   - El superadmin (o `manage_options` en single-site) mantiene vision completa del wp-admin.
    - Soporte de capabilities extra para que plugins terceros permitan acciones.
    - Acceso selectivo a usuarios.
    - Acceso selectivo a posts por tipo de contenido.
    - Acceso selectivo a menus de plugins detectados.
+   - Detecta plugins con menu top-level, submenu y entradas basadas en custom post type.
    - Redireccion a dashboard custom cuando intentan abrir una pantalla no permitida.
    - Compatibilidad mejorada con acciones internas de plugins (POST/admin-post/options).
 

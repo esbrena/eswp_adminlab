@@ -93,17 +93,23 @@ class CAD_Admin_Panel {
             return;
         }
 
+        if ($this->current_user_should_bypass_restrictions()) {
+            return;
+        }
+
         global $menu, $submenu;
         if (! is_array($menu)) {
             return;
         }
 
         $ui = $this->access_control->get_ui_settings();
-        $plugin_top_menus = CAD_Access_Control::sanitize_menu_slug_list(isset($ui['allowed_plugin_menus']) ? $ui['allowed_plugin_menus'] : array());
+        $plugin_access = $this->resolve_plugin_menu_visibility(
+            isset($ui['allowed_plugin_menus']) ? $ui['allowed_plugin_menus'] : array()
+        );
 
         $allowed_top = $this->get_allowed_top_level_menu_slugs_for_operational_admin();
         $allowed_sub = $this->get_allowed_submenu_slugs_for_operational_admin($allowed_top);
-        $keep_all_submenus_for_parents = $plugin_top_menus;
+        $keep_all_submenus_for_parents = isset($plugin_access['keep_all']) ? (array) $plugin_access['keep_all'] : array();
 
         foreach ($menu as $index => $item) {
             $slug = isset($item[2]) ? (string) $item[2] : '';
@@ -248,6 +254,10 @@ class CAD_Admin_Panel {
             return;
         }
 
+        if ($this->current_user_should_bypass_restrictions()) {
+            return;
+        }
+
         $settings = $this->access_control->get_settings();
         if (empty($settings['force_redirect'])) {
             return;
@@ -279,13 +289,13 @@ class CAD_Admin_Panel {
             return $redirect_to;
         }
 
-        $settings = $this->access_control->get_settings();
-        if (empty($settings['force_redirect'])) {
+        if ($this->user_should_bypass_restrictions($user)) {
             return $redirect_to;
         }
 
-        if ($this->access_control->is_super_admin_user($user->ID)) {
-            return admin_url('admin.php?page=cad-dashboard');
+        $settings = $this->access_control->get_settings();
+        if (empty($settings['force_redirect'])) {
+            return $redirect_to;
         }
 
         $allowed_roles = CAD_Access_Control::sanitize_role_list($settings['allowed_roles']);
@@ -308,6 +318,10 @@ class CAD_Admin_Panel {
             return;
         }
 
+        if ($this->current_user_should_bypass_restrictions()) {
+            return;
+        }
+
         $ui = $this->access_control->get_ui_settings();
         if (empty($ui['hide_wp_dashboard_widgets'])) {
             return;
@@ -326,6 +340,10 @@ class CAD_Admin_Panel {
      */
     public function prune_admin_bar($wp_admin_bar) {
         if (! $this->access_control->is_current_user_operational_admin()) {
+            return;
+        }
+
+        if ($this->current_user_should_bypass_restrictions()) {
             return;
         }
 
@@ -369,7 +387,7 @@ class CAD_Admin_Panel {
 
         $page = isset($_GET['page']) ? sanitize_key(wp_unslash($_GET['page'])) : '';
         $is_cad_page = $page !== '' && strpos($page, 'cad-') === 0;
-        $is_operational = $this->access_control->is_current_user_operational_admin();
+        $is_operational = $this->access_control->is_current_user_operational_admin() && ! $this->current_user_should_bypass_restrictions();
 
         if (! $is_cad_page && ! $is_operational) {
             return;
@@ -391,6 +409,10 @@ class CAD_Admin_Panel {
      */
     public function output_admin_customizations() {
         if (! $this->access_control->is_current_user_operational_admin()) {
+            return;
+        }
+
+        if ($this->current_user_should_bypass_restrictions()) {
             return;
         }
 
@@ -808,6 +830,30 @@ class CAD_Admin_Panel {
     }
 
     /**
+     * @return bool
+     */
+    private function current_user_should_bypass_restrictions() {
+        return $this->can_manage_settings();
+    }
+
+    /**
+     * @param WP_User $user
+     *
+     * @return bool
+     */
+    private function user_should_bypass_restrictions($user) {
+        if (! $user instanceof WP_User) {
+            return false;
+        }
+
+        if (is_multisite() && function_exists('is_super_admin') && is_super_admin($user->ID)) {
+            return true;
+        }
+
+        return user_can($user, 'manage_options');
+    }
+
+    /**
      * @return array
      */
     private function get_allowed_top_level_menu_slugs_for_operational_admin() {
@@ -835,10 +881,10 @@ class CAD_Admin_Panel {
         }
 
         if (! empty($ui['show_plugins_section'])) {
-            $allowed = array_merge(
-                $allowed,
-                CAD_Access_Control::sanitize_menu_slug_list($ui['allowed_plugin_menus'])
+            $plugin_access = $this->resolve_plugin_menu_visibility(
+                isset($ui['allowed_plugin_menus']) ? $ui['allowed_plugin_menus'] : array()
             );
+            $allowed = array_merge($allowed, isset($plugin_access['top']) ? (array) $plugin_access['top'] : array());
         }
 
         $allowed = array_values(array_unique($allowed));
@@ -890,8 +936,10 @@ class CAD_Admin_Panel {
         }
 
         if (! empty($ui['show_plugins_section'])) {
-            $plugin_top = CAD_Access_Control::sanitize_menu_slug_list($ui['allowed_plugin_menus']);
-            $allowed = array_merge($allowed, $this->get_allowed_plugin_submenu_slugs($plugin_top));
+            $plugin_access = $this->resolve_plugin_menu_visibility(
+                isset($ui['allowed_plugin_menus']) ? $ui['allowed_plugin_menus'] : array()
+            );
+            $allowed = array_merge($allowed, isset($plugin_access['sub']) ? (array) $plugin_access['sub'] : array());
         }
 
         if ($this->can_manage_settings()) {
@@ -902,19 +950,56 @@ class CAD_Admin_Panel {
     }
 
     /**
-     * @param array $allowed_plugin_menus
+     * Resolve selected plugin entries into parent/submenu visibility.
      *
      * @return array
      */
-    private function get_allowed_plugin_submenu_slugs($allowed_plugin_menus) {
-        global $submenu;
+    private function resolve_plugin_menu_visibility($selected_plugin_entries) {
+        global $menu, $submenu;
 
-        $allowed = array();
-        $allowed_plugin_menus = CAD_Access_Control::sanitize_menu_slug_list($allowed_plugin_menus);
+        $selected_plugin_entries = CAD_Access_Control::sanitize_menu_slug_list($selected_plugin_entries);
+        $top_slugs = array();
 
-        foreach ($allowed_plugin_menus as $menu_slug) {
-            $allowed[] = $menu_slug;
-            $allowed[] = 'admin.php?page=' . $menu_slug;
+        if (is_array($menu)) {
+            foreach ($menu as $item) {
+                $top_slug = isset($item[2]) ? (string) $item[2] : '';
+                if ($top_slug !== '' && strpos($top_slug, 'separator') !== 0) {
+                    $top_slugs[] = $top_slug;
+                }
+            }
+        }
+
+        $result_top = array();
+        $result_sub = array();
+        $keep_all   = array();
+
+        foreach ($selected_plugin_entries as $selected_slug) {
+            $selected_slug = (string) $selected_slug;
+            if ($selected_slug === '') {
+                continue;
+            }
+
+            $top_slug_candidate = $selected_slug;
+            if (strpos($selected_slug, 'admin.php?page=') === 0) {
+                $top_slug_candidate = substr($selected_slug, strlen('admin.php?page='));
+            }
+
+            if (in_array($selected_slug, $top_slugs, true) || in_array($top_slug_candidate, $top_slugs, true)) {
+                $resolved_top = in_array($selected_slug, $top_slugs, true) ? $selected_slug : $top_slug_candidate;
+                $result_top[] = $resolved_top;
+                $keep_all[]   = $resolved_top;
+
+                if (is_array($submenu) && isset($submenu[$resolved_top]) && is_array($submenu[$resolved_top])) {
+                    foreach ($submenu[$resolved_top] as $submenu_item) {
+                        $sub_slug = isset($submenu_item[2]) ? (string) $submenu_item[2] : '';
+                        if ($sub_slug !== '') {
+                            $result_sub[] = $sub_slug;
+                        }
+                    }
+                }
+
+                continue;
+            }
 
             if (! is_array($submenu)) {
                 continue;
@@ -926,44 +1011,34 @@ class CAD_Admin_Panel {
                 }
 
                 $parent_slug = (string) $parent_slug;
-                $matches_parent = $parent_slug === $menu_slug;
-
-                if (! $matches_parent) {
-                    foreach ($submenu_items as $submenu_item) {
-                        $sub_slug = isset($submenu_item[2]) ? (string) $submenu_item[2] : '';
-                        if ($sub_slug === '') {
-                            continue;
-                        }
-
-                        if (
-                            $sub_slug === $menu_slug ||
-                            strpos($sub_slug, 'admin.php?page=' . $menu_slug) === 0 ||
-                            (
-                                strpos($menu_slug, 'admin.php?page=') === 0 &&
-                                $sub_slug === substr($menu_slug, strlen('admin.php?page='))
-                            )
-                        ) {
-                            $matches_parent = true;
-                            break;
-                        }
-                    }
-                }
-
-                if (! $matches_parent) {
-                    continue;
-                }
-
-                $allowed[] = $parent_slug;
                 foreach ($submenu_items as $submenu_item) {
                     $sub_slug = isset($submenu_item[2]) ? (string) $submenu_item[2] : '';
-                    if ($sub_slug !== '') {
-                        $allowed[] = $sub_slug;
+                    if ($sub_slug === '') {
+                        continue;
                     }
+
+                    $selected_page = $this->extract_page_from_menu_slug($selected_slug);
+                    $submenu_page  = $this->extract_page_from_menu_slug($sub_slug);
+                    $matches = $sub_slug === $selected_slug
+                        || ($selected_page !== '' && $submenu_page !== '' && $selected_page === $submenu_page)
+                        || ($selected_page !== '' && $sub_slug === $selected_page)
+                        || ($submenu_page !== '' && $selected_slug === $submenu_page);
+
+                    if (! $matches) {
+                        continue;
+                    }
+
+                    $result_top[] = $parent_slug;
+                    $result_sub[] = $sub_slug;
                 }
             }
         }
 
-        return array_values(array_unique($allowed));
+        return array(
+            'top'      => array_values(array_unique($result_top)),
+            'sub'      => array_values(array_unique($result_sub)),
+            'keep_all' => array_values(array_unique($keep_all)),
+        );
     }
 
     /**
@@ -1020,8 +1095,14 @@ class CAD_Admin_Panel {
             return false;
         }
 
-        $allowed_plugin_menus = CAD_Access_Control::sanitize_menu_slug_list($ui['allowed_plugin_menus']);
-        if (empty($allowed_plugin_menus)) {
+        $selected_plugin_entries = isset($ui['allowed_plugin_menus']) ? (array) $ui['allowed_plugin_menus'] : array();
+        $plugin_access = $this->resolve_plugin_menu_visibility($selected_plugin_entries);
+
+        $allowed_plugin_menus = isset($plugin_access['top']) ? (array) $plugin_access['top'] : array();
+        $allowed_plugin_submenus = isset($plugin_access['sub']) ? (array) $plugin_access['sub'] : array();
+        $selected_plugin_entries = CAD_Access_Control::sanitize_menu_slug_list($selected_plugin_entries);
+
+        if (empty($selected_plugin_entries) && empty($allowed_plugin_menus) && empty($allowed_plugin_submenus)) {
             return false;
         }
 
@@ -1029,25 +1110,17 @@ class CAD_Admin_Panel {
             return true;
         }
 
-        $allowed_plugin_submenus = $this->get_allowed_plugin_submenu_slugs($allowed_plugin_menus);
         if (in_array($pagenow, $allowed_plugin_submenus, true)) {
             return true;
         }
 
-        if ($pagenow !== 'admin.php') {
-            return false;
-        }
-
         $page = isset($_GET['page']) ? sanitize_text_field(wp_unslash($_GET['page'])) : '';
-        if ($page === '') {
-            return false;
-        }
 
         if (in_array($page, $allowed_plugin_menus, true)) {
             return true;
         }
 
-        foreach ($allowed_plugin_menus as $plugin_menu_slug) {
+        foreach (array_merge($selected_plugin_entries, $allowed_plugin_menus, $allowed_plugin_submenus) as $plugin_menu_slug) {
             if ($this->menu_slug_matches_request($plugin_menu_slug, $pagenow, $page)) {
                 return true;
             }
@@ -1215,23 +1288,52 @@ class CAD_Admin_Panel {
             'cad-settings',
             'cad-users',
         );
+        $core_submenu_slugs = array(
+            'index.php',
+            'update-core.php',
+            'edit.php',
+            'post-new.php',
+            'upload.php',
+            'edit.php?post_type=page',
+            'edit-comments.php',
+            'themes.php',
+            'widgets.php',
+            'nav-menus.php',
+            'customize.php',
+            'plugins.php',
+            'plugin-install.php',
+            'users.php',
+            'user-new.php',
+            'profile.php',
+            'tools.php',
+            'import.php',
+            'export.php',
+            'options-general.php',
+            'options-writing.php',
+            'options-reading.php',
+            'options-discussion.php',
+            'options-media.php',
+            'options-permalink.php',
+            'options-privacy.php',
+            'site-health.php',
+            'privacy.php',
+        );
 
         $candidates = array();
+        $top_labels = array();
         foreach ($menu as $item) {
             $slug = isset($item[2]) ? (string) $item[2] : '';
             if ($slug === '' || strpos($slug, 'separator') === 0) {
                 continue;
             }
 
+            $label = $this->clean_menu_label(isset($item[0]) ? (string) $item[0] : $slug);
+            $top_labels[$slug] = $label !== '' ? $label : $slug;
+
             if (in_array($slug, $core_slugs, true)) {
                 continue;
             }
 
-            if (strpos($slug, 'edit.php?post_type=') === 0) {
-                continue;
-            }
-
-            $label = $this->clean_menu_label(isset($item[0]) ? (string) $item[0] : $slug);
             $link_slug = $slug;
             if (is_array($submenu) && isset($submenu[$slug][0][2]) && ! empty($submenu[$slug][0][2])) {
                 $link_slug = (string) $submenu[$slug][0][2];
@@ -1244,8 +1346,76 @@ class CAD_Admin_Panel {
             );
         }
 
+        if (is_array($submenu)) {
+            foreach ($submenu as $parent_slug => $submenu_items) {
+                if (! is_array($submenu_items)) {
+                    continue;
+                }
+
+                $parent_slug = (string) $parent_slug;
+                $parent_label = isset($top_labels[$parent_slug]) ? (string) $top_labels[$parent_slug] : $parent_slug;
+
+                foreach ($submenu_items as $submenu_item) {
+                    $sub_slug = isset($submenu_item[2]) ? (string) $submenu_item[2] : '';
+                    if ($sub_slug === '') {
+                        continue;
+                    }
+
+                    if (isset($candidates[$sub_slug])) {
+                        continue;
+                    }
+
+                    if (strpos($sub_slug, 'cad-') === 0 || strpos($sub_slug, 'admin.php?page=cad-') === 0) {
+                        continue;
+                    }
+
+                    if (in_array($sub_slug, $core_submenu_slugs, true)) {
+                        continue;
+                    }
+
+                    $sub_label = $this->clean_menu_label(isset($submenu_item[0]) ? (string) $submenu_item[0] : $sub_slug);
+                    $display_label = $parent_label !== ''
+                        ? $parent_label . ' > ' . $sub_label
+                        : $sub_label;
+
+                    $candidates[$sub_slug] = array(
+                        'label' => $display_label !== '' ? $display_label : $sub_slug,
+                        'slug'  => $sub_slug,
+                        'url'   => $this->menu_slug_to_url($sub_slug),
+                    );
+                }
+            }
+        }
+
         ksort($candidates);
         return $candidates;
+    }
+
+    /**
+     * @param string $menu_slug
+     *
+     * @return string
+     */
+    private function extract_page_from_menu_slug($menu_slug) {
+        $menu_slug = (string) $menu_slug;
+        if ($menu_slug === '') {
+            return '';
+        }
+
+        if (strpos($menu_slug, 'admin.php?page=') === 0) {
+            return (string) substr($menu_slug, strlen('admin.php?page='));
+        }
+
+        $query = parse_url($menu_slug, PHP_URL_QUERY);
+        if (is_string($query) && $query !== '') {
+            $args = array();
+            parse_str($query, $args);
+            if (isset($args['page']) && ! is_array($args['page'])) {
+                return (string) $args['page'];
+            }
+        }
+
+        return '';
     }
 
     /**
