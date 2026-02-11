@@ -1,88 +1,28 @@
 # Custom Admin Dashboard (WordPress)
 
-Plugin para que el **superadmin** defina exactamente que ven los admins operativos
-dentro de `wp-admin`, con panel custom y branding.
+Plugin simplificado para definir **CSS personalizado por rol** en `wp-admin`.
 
-## Objetivo
+## Que hace
 
-Controlar de forma simple (seleccion directa):
+- Permite guardar CSS distinto para cada rol de WordPress.
+- Aplica automaticamente ese CSS solo a usuarios que tienen ese rol.
+- Si un usuario tiene varios roles, combina el CSS de todos esos roles.
 
-- Que seccion de **usuarios** pueden ver.
-- Que seccion de **posts** pueden ver (incluyendo seleccion por `post_type`).
-- Que **plugins** pueden usar desde sidebar.
-- Que **menu lateral** ve cada rol operativo (allow-list por rol).
-- Poder **editar capabilities reales** de cada rol operativo desde la configuracion.
-- Que contenido de WordPress se oculta para simplificar el trabajo.
+## Configuracion
 
-Ademas, personalizar visualmente el panel:
+1. Activa el plugin.
+2. Ve a **Ajustes > CSS por rol**.
+3. Escribe el CSS en el textarea de cada rol.
+4. Guarda cambios.
 
-- Logo de cabecera.
-- Titulo/subtitulo.
-- Colores del panel.
-- CSS custom opcional.
+## Notas
 
-## Funcionalidades principales
-
-1. **Control por superadmin**
-   - En multisite, solo superadmin puede guardar configuracion de visibilidad.
-   - En single-site, se usa `manage_options`.
-
-2. **Visibilidad granular de wp-admin**
-   - Restriccion de menus top-level y submenus.
-   - Definicion de menu lateral por rol (solo para roles seleccionados en el paso 1).
-   - Aplicacion forzada de reglas de visibilidad (evita que vuelvan menus no permitidos).
-   - El superadmin (o `manage_options` en single-site) mantiene vision completa del wp-admin.
-   - Soporte de capabilities extra para que plugins terceros permitan acciones.
-   - Acceso selectivo a usuarios.
-   - Acceso selectivo a posts por tipo de contenido.
-   - Acceso selectivo a menus de plugins detectados.
-   - Detecta plugins con menu top-level, submenu y entradas basadas en custom post type.
-   - Redireccion a dashboard custom cuando intentan abrir una pantalla no permitida.
-   - Compatibilidad mejorada con acciones internas de plugins (POST/admin-post/options).
-
-3. **Limpieza de interfaz**
-   - Ocultar widgets del dashboard.
-   - Limpiar items de admin bar.
-   - Ocultar notices/context help/screen options para un panel operativo mas simple.
-
-4. **Dashboard custom**
-   - Vista resumen para equipo operativo.
-   - Acceso a gestion simplificada de usuarios y metadatos.
-   - Ficha de usuario con acceso a cursos y reservas relacionados.
-
-5. **Usuarios mas usable**
-   - Filtro de metadatos por clave/valor.
-   - Ordenacion por clave meta.
-   - Edicion mejorada de valores largos.
-   - Tabla de cursos/reservas ligados por autor o por claves meta de relacion.
-
-6. **Branding**
-   - Logo, textos de cabecera y colores.
-   - CSS custom.
-
-7. **Permisos por rol (edicion)**
-   - Gestion directa de capabilities por rol desde la pantalla de configuracion.
-   - Cambios aplicados a los roles seleccionados en el paso 1.
-
-## Instalacion
-
-1. Copia la carpeta del plugin en:
-   `wp-content/plugins/custom-admin-dashboard`
-2. Activa el plugin.
-3. Entra en **Panel operativo > Configuracion**.
-4. Define:
-   - Roles operativos afectados.
-   - Menu lateral permitido por rol.
-   - Capabilities por rol (editable).
-   - Que ven en Plugins / Usuarios / Posts.
-   - Que elementos de WP ocultar.
-   - Post types y claves meta para integrar cursos/reservas por usuario.
-   - Colores y logo.
+- Solo usuarios con `manage_options` pueden editar la configuracion.
+- El CSS se aplica en el admin (`wp-admin`), no en el frontend.
 
 ## Estructura
 
 - `custom-admin-dashboard.php` - bootstrap.
-- `includes/class-cad-access-control.php` - settings, permisos y sanitizacion.
-- `includes/class-cad-admin-panel.php` - dashboard, configuracion y restricciones UI.
-- `includes/class-cad-user-manager.php` - gestion simplificada de usuarios, metadatos y actividad cursos/reservas.
-- `assets/admin.css` - estilos y branding.
+- `includes/class-cad-plugin.php` - carga principal del plugin.
+- `includes/class-cad-access-control.php` - almacenamiento y sanitizacion de CSS por rol.
+- `includes/class-cad-admin-panel.php` - pantalla de ajustes y salida de CSS en admin.

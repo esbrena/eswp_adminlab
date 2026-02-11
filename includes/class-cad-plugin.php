@@ -16,11 +16,6 @@ class CAD_Plugin {
     private $access_control;
 
     /**
-     * @var CAD_User_Manager
-     */
-    private $user_manager;
-
-    /**
      * @var CAD_Admin_Panel
      */
     private $admin_panel;
@@ -45,13 +40,11 @@ class CAD_Plugin {
         $this->load_textdomain();
 
         $this->access_control = new CAD_Access_Control();
-        $this->user_manager   = new CAD_User_Manager($this->access_control);
-        $this->admin_panel    = new CAD_Admin_Panel($this->access_control, $this->user_manager);
+        $this->admin_panel    = new CAD_Admin_Panel($this->access_control);
     }
 
     private function load_dependencies() {
         require_once CAD_PLUGIN_DIR . 'includes/class-cad-access-control.php';
-        require_once CAD_PLUGIN_DIR . 'includes/class-cad-user-manager.php';
         require_once CAD_PLUGIN_DIR . 'includes/class-cad-admin-panel.php';
     }
 
@@ -70,10 +63,9 @@ class CAD_Plugin {
         $merged  = CAD_Access_Control::normalize_settings($current);
 
         update_option(CAD_Access_Control::OPTION_KEY, $merged);
-        CAD_Access_Control::sync_role_caps($merged);
     }
 
     public static function deactivate() {
-        // Keep configuration and capabilities for future re-activation.
+        // Keep configuration for future re-activation.
     }
 }
