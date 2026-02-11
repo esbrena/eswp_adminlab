@@ -15,11 +15,16 @@ Plugin para dos funciones principales en `wp-admin`:
   - edicion de datos base (email, nombre, nickname, bio, rol, password),
   - edicion de metadatos de usuario (incluyendo metadatos ACF),
   - paneles de relaciones detectadas: cursos, lecciones, examenes y reservas.
+- Ajustes configurables para relaciones:
+  - post types de cursos/lecciones/examenes/reservas,
+  - meta keys para detectar la relacion del usuario con contenido.
 
 ## Configuracion
 
 1. Activa el plugin.
-2. Ve a **Ajustes > CSS por rol** para configurar estilos por rol.
+2. Ve a **Ajustes > CSS por rol** para:
+   - configurar estilos por rol,
+   - configurar post types y meta keys de relaciones de usuario.
 3. Ve a **Herramientas > Gestion usuarios CAD** para editar usuarios y relaciones.
 
 ## Notas

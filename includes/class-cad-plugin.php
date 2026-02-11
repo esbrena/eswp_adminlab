@@ -46,7 +46,7 @@ class CAD_Plugin {
 
         $this->access_control = new CAD_Access_Control();
         $this->admin_panel    = new CAD_Admin_Panel($this->access_control);
-        $this->user_manager   = new CAD_User_Manager();
+        $this->user_manager   = new CAD_User_Manager($this->access_control);
     }
 
     private function load_dependencies() {

@@ -15,7 +15,17 @@ class CAD_User_Manager {
      */
     const RELATION_LIMIT = 50;
 
-    public function __construct() {
+    /**
+     * @var CAD_Access_Control
+     */
+    private $access_control;
+
+    /**
+     * @param CAD_Access_Control $access_control
+     */
+    public function __construct($access_control) {
+        $this->access_control = $access_control;
+
         add_action('admin_menu', array($this, 'register_user_management_page'));
         add_action('admin_init', array($this, 'handle_admin_requests'));
     }
@@ -554,6 +564,10 @@ class CAD_User_Manager {
      * @param int $user_id
      */
     private function render_user_relations($user_id) {
+        $relation_settings = $this->get_relation_settings();
+        $relation_meta_keys = isset($relation_settings['user_relation_meta_keys'])
+            ? (array) $relation_settings['user_relation_meta_keys']
+            : array();
         $groups = $this->get_relation_groups();
         ?>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;">
@@ -562,6 +576,7 @@ class CAD_User_Manager {
                 $posts = $this->get_related_posts_for_user(
                     $user_id,
                     isset($group['post_types']) ? (array) $group['post_types'] : array(),
+                    $relation_meta_keys,
                     self::RELATION_LIMIT
                 );
                 ?>
@@ -578,22 +593,24 @@ class CAD_User_Manager {
      * @return array
      */
     private function get_relation_groups() {
+        $relation_settings = $this->get_relation_settings();
+
         return array(
             array(
                 'label'      => __('Cursos', 'custom-admin-dashboard'),
-                'post_types' => array('course', 'courses', 'sfwd-courses', 'lp_course', 'tutor_course'),
+                'post_types' => isset($relation_settings['course_post_types']) ? (array) $relation_settings['course_post_types'] : array(),
             ),
             array(
                 'label'      => __('Lecciones', 'custom-admin-dashboard'),
-                'post_types' => array('lesson', 'lessons', 'sfwd-lessons', 'lp_lesson', 'tutor_lesson'),
+                'post_types' => isset($relation_settings['lesson_post_types']) ? (array) $relation_settings['lesson_post_types'] : array(),
             ),
             array(
                 'label'      => __('Examenes', 'custom-admin-dashboard'),
-                'post_types' => array('exam', 'exams', 'quiz', 'sfwd-quiz', 'tutor_quiz'),
+                'post_types' => isset($relation_settings['exam_post_types']) ? (array) $relation_settings['exam_post_types'] : array(),
             ),
             array(
                 'label'      => __('Reservas', 'custom-admin-dashboard'),
-                'post_types' => array('booking', 'bookings', 'wc_booking', 'bookly_appointment'),
+                'post_types' => isset($relation_settings['booking_post_types']) ? (array) $relation_settings['booking_post_types'] : array(),
             ),
         );
     }
@@ -601,11 +618,12 @@ class CAD_User_Manager {
     /**
      * @param int   $user_id
      * @param array $post_types
+     * @param array $relation_meta_keys
      * @param int   $limit
      *
      * @return array
      */
-    private function get_related_posts_for_user($user_id, $post_types, $limit = 50) {
+    private function get_related_posts_for_user($user_id, $post_types, $relation_meta_keys = array(), $limit = 50) {
         $user_id = (int) $user_id;
         $limit   = (int) $limit;
 
@@ -645,19 +663,18 @@ class CAD_User_Manager {
             $ids = array_merge($ids, array_map('intval', (array) $by_author->posts));
         }
 
-        $meta_keys = array(
-            'user_id',
-            'customer_id',
-            'student_id',
-            'attendee_id',
-            '_customer_user',
-            'author_id',
-            'client_id',
-            'booking_user',
-            'owner_id',
-            'instructor_id',
-            'teacher_id',
-        );
+        $meta_keys = CAD_Access_Control::sanitize_meta_key_list((array) $relation_meta_keys);
+        if (empty($meta_keys)) {
+            $meta_keys = CAD_Access_Control::sanitize_meta_key_list(
+                array(
+                    'user_id',
+                    'customer_id',
+                    'student_id',
+                    'attendee_id',
+                    '_customer_user',
+                )
+            );
+        }
 
         $meta_query = array('relation' => 'OR');
         foreach ($meta_keys as $meta_key) {
@@ -703,6 +720,20 @@ class CAD_User_Manager {
         );
 
         return is_array($posts) ? $posts : array();
+    }
+
+    /**
+     * @return array
+     */
+    private function get_relation_settings() {
+        if ($this->access_control instanceof CAD_Access_Control) {
+            return $this->access_control->get_relation_settings();
+        }
+
+        $defaults = CAD_Access_Control::get_default_settings();
+        return CAD_Access_Control::sanitize_relation_settings(
+            isset($defaults['relations']) ? $defaults['relations'] : array()
+        );
     }
 
     /**
