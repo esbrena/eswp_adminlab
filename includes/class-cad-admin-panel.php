@@ -180,9 +180,6 @@ class CAD_Admin_Panel {
 
         $allowed_roles = isset($_POST['allowed_roles']) ? (array) wp_unslash($_POST['allowed_roles']) : array();
         $allowed_roles = CAD_Access_Control::sanitize_role_list($allowed_roles);
-        if (empty($allowed_roles)) {
-            $allowed_roles = array('administrator');
-        }
 
         $ui_input = array(
             'show_users_section'        => isset($_POST['ui_show_users_section']) ? 1 : 0,
@@ -202,6 +199,10 @@ class CAD_Admin_Panel {
             'hide_wp_notices'           => isset($_POST['ui_hide_wp_notices']) ? 1 : 0,
         );
         $ui_input = CAD_Access_Control::sanitize_ui_settings($ui_input);
+        $ui_input['role_sidebar_menus'] = $this->keep_map_keys_in_allowed_roles(
+            isset($ui_input['role_sidebar_menus']) ? $ui_input['role_sidebar_menus'] : array(),
+            $allowed_roles
+        );
 
         $integration_input = array(
             'course_post_types'       => isset($_POST['integration_course_post_types']) ? explode(',', sanitize_text_field(wp_unslash($_POST['integration_course_post_types']))) : array(),
@@ -233,6 +234,7 @@ class CAD_Admin_Panel {
 
         update_option(CAD_Access_Control::OPTION_KEY, $settings);
         CAD_Access_Control::sync_role_caps($settings);
+        $this->apply_selected_role_capabilities_from_request($allowed_roles);
         $this->access_control->flush_settings_cache();
 
         wp_safe_redirect(
@@ -301,10 +303,6 @@ class CAD_Admin_Panel {
 
         $allowed_roles = CAD_Access_Control::sanitize_role_list($settings['allowed_roles']);
         if (! empty(array_intersect((array) $user->roles, $allowed_roles))) {
-            return admin_url('admin.php?page=cad-dashboard');
-        }
-
-        if (! empty($user->allcaps[CAD_Access_Control::CAP_ACCESS_DASHBOARD])) {
             return admin_url('admin.php?page=cad-dashboard');
         }
 
@@ -535,6 +533,10 @@ class CAD_Admin_Panel {
 
         $roles = wp_roles();
         $all_roles = $roles instanceof WP_Roles ? $roles->roles : array();
+        $allowed_role_keys = CAD_Access_Control::sanitize_role_list(
+            isset($settings['allowed_roles']) ? $settings['allowed_roles'] : array()
+        );
+        $managed_roles = $this->get_role_data_subset($all_roles, $allowed_role_keys);
 
         $available_post_types = $this->get_available_post_type_options();
         $plugin_candidates = $this->get_plugin_menu_candidates();
@@ -544,7 +546,9 @@ class CAD_Admin_Panel {
         $role_sidebar_menus = CAD_Access_Control::sanitize_role_sidebar_menu_map(
             isset($ui['role_sidebar_menus']) ? $ui['role_sidebar_menus'] : array()
         );
-        $role_capability_matrix = $this->get_roles_capability_matrix($all_roles);
+        $role_sidebar_menus = $this->keep_map_keys_in_allowed_roles($role_sidebar_menus, $allowed_role_keys);
+        $role_capability_matrix = $this->get_roles_capability_matrix($managed_roles);
+        $capability_candidates = $this->get_role_capability_candidates($all_roles, $ui);
         $extra_capabilities = implode(
             ', ',
             CAD_Access_Control::sanitize_capability_list(
@@ -620,10 +624,12 @@ class CAD_Admin_Panel {
                                     <?php esc_html_e('Selecciona que menus laterales podra ver cada rol. Si un rol no tiene ningun menu marcado, se aplica la visibilidad general.', 'custom-admin-dashboard'); ?>
                                 </p>
 
-                                <?php if (empty($sidebar_menu_candidates)) : ?>
+                                <?php if (empty($managed_roles)) : ?>
+                                    <p><?php esc_html_e('Primero selecciona al menos un rol en "Roles objetivo".', 'custom-admin-dashboard'); ?></p>
+                                <?php elseif (empty($sidebar_menu_candidates)) : ?>
                                     <p><?php esc_html_e('No hay menus laterales detectados para configurar.', 'custom-admin-dashboard'); ?></p>
                                 <?php else : ?>
-                                    <?php foreach ($all_roles as $role_key => $role_data) : ?>
+                                    <?php foreach ($managed_roles as $role_key => $role_data) : ?>
                                         <?php
                                         $role_label = isset($role_data['name']) ? (string) $role_data['name'] : (string) $role_key;
                                         $selected_role_menus = isset($role_sidebar_menus[$role_key]) ? (array) $role_sidebar_menus[$role_key] : array();
@@ -659,36 +665,45 @@ class CAD_Admin_Panel {
                     </tbody>
                 </table>
 
-                <h2><?php esc_html_e('3) Permisos por rol (capabilities activas)', 'custom-admin-dashboard'); ?></h2>
+                <h2><?php esc_html_e('3) Gestion de permisos por rol (capabilities)', 'custom-admin-dashboard'); ?></h2>
                 <table class="form-table" role="presentation">
                     <tbody>
                         <tr>
-                            <th scope="row"><?php esc_html_e('Auditoria de roles', 'custom-admin-dashboard'); ?></th>
+                            <th scope="row"><?php esc_html_e('Editar capabilities', 'custom-admin-dashboard'); ?></th>
                             <td>
-                                <?php foreach ($all_roles as $role_key => $role_data) : ?>
-                                    <?php
-                                    $role_label = isset($role_data['name']) ? (string) $role_data['name'] : (string) $role_key;
-                                    $role_caps = isset($role_capability_matrix[$role_key]) ? (array) $role_capability_matrix[$role_key] : array();
-                                    ?>
-                                    <details style="margin: 8px 0;">
-                                        <summary>
-                                            <strong><?php echo esc_html($role_label); ?></strong>
-                                            <code><?php echo esc_html($role_key); ?></code>
-                                            (<?php echo esc_html((string) count($role_caps)); ?>)
-                                        </summary>
-                                        <?php if (empty($role_caps)) : ?>
-                                            <p><?php esc_html_e('Este rol no tiene capabilities activas.', 'custom-admin-dashboard'); ?></p>
-                                        <?php else : ?>
+                                <?php if (empty($managed_roles)) : ?>
+                                    <p><?php esc_html_e('Primero selecciona al menos un rol en "Roles objetivo".', 'custom-admin-dashboard'); ?></p>
+                                <?php else : ?>
+                                    <?php foreach ($managed_roles as $role_key => $role_data) : ?>
+                                        <?php
+                                        $role_label = isset($role_data['name']) ? (string) $role_data['name'] : (string) $role_key;
+                                        $role_caps = isset($role_capability_matrix[$role_key]) ? (array) $role_capability_matrix[$role_key] : array();
+                                        ?>
+                                        <div class="cad-card" style="margin:12px 0;padding:12px;">
                                             <p>
-                                                <?php foreach ($role_caps as $capability_key) : ?>
-                                                    <code><?php echo esc_html($capability_key); ?></code><br />
-                                                <?php endforeach; ?>
+                                                <strong><?php echo esc_html($role_label); ?></strong>
+                                                <code><?php echo esc_html($role_key); ?></code>
+                                                (<?php echo esc_html((string) count($role_caps)); ?>)
                                             </p>
-                                        <?php endif; ?>
-                                    </details>
-                                <?php endforeach; ?>
+                                            <input type="hidden" name="ui_role_capabilities_present[<?php echo esc_attr($role_key); ?>]" value="1" />
+                                            <fieldset class="cad-checkbox-grid cad-child-fieldset">
+                                                <?php foreach ($capability_candidates as $capability_key) : ?>
+                                                    <label>
+                                                        <input
+                                                            type="checkbox"
+                                                            name="ui_role_capabilities[<?php echo esc_attr($role_key); ?>][]"
+                                                            value="<?php echo esc_attr($capability_key); ?>"
+                                                            <?php checked(in_array($capability_key, $role_caps, true)); ?>
+                                                        />
+                                                        <code><?php echo esc_html($capability_key); ?></code>
+                                                    </label>
+                                                <?php endforeach; ?>
+                                            </fieldset>
+                                        </div>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
                                 <p class="description">
-                                    <?php esc_html_e('Vista informativa: muestra capabilities con valor true en cada rol de WordPress.', 'custom-admin-dashboard'); ?>
+                                    <?php esc_html_e('Esta seccion modifica los permisos reales del rol en WordPress. Solo aplica a los roles seleccionados en el paso 1.', 'custom-admin-dashboard'); ?>
                                 </p>
                             </td>
                         </tr>
@@ -945,6 +960,158 @@ class CAD_Admin_Panel {
     }
 
     /**
+     * @param array $all_roles
+     * @param array $allowed_role_keys
+     *
+     * @return array
+     */
+    private function get_role_data_subset($all_roles, $allowed_role_keys) {
+        if (! is_array($all_roles)) {
+            return array();
+        }
+
+        $allowed_role_keys = CAD_Access_Control::sanitize_role_list($allowed_role_keys);
+        if (empty($allowed_role_keys)) {
+            return array();
+        }
+
+        $subset = array();
+        foreach ($allowed_role_keys as $role_key) {
+            if (isset($all_roles[$role_key])) {
+                $subset[$role_key] = $all_roles[$role_key];
+            }
+        }
+
+        return $subset;
+    }
+
+    /**
+     * @param array $map
+     * @param array $allowed_role_keys
+     *
+     * @return array
+     */
+    private function keep_map_keys_in_allowed_roles($map, $allowed_role_keys) {
+        if (! is_array($map)) {
+            return array();
+        }
+
+        $allowed_role_keys = CAD_Access_Control::sanitize_role_list($allowed_role_keys);
+        if (empty($allowed_role_keys)) {
+            return array();
+        }
+
+        $filtered = array();
+        foreach ($allowed_role_keys as $role_key) {
+            if (isset($map[$role_key])) {
+                $filtered[$role_key] = $map[$role_key];
+            }
+        }
+
+        return $filtered;
+    }
+
+    /**
+     * @param array $all_roles
+     * @param array $ui
+     *
+     * @return array
+     */
+    private function get_role_capability_candidates($all_roles, $ui = array()) {
+        $candidates = array(
+            'read',
+            CAD_Access_Control::CAP_ACCESS_DASHBOARD,
+            CAD_Access_Control::CAP_MANAGE_USERS,
+            CAD_Access_Control::CAP_MANAGE_COURSES,
+            CAD_Access_Control::CAP_MANAGE_BOOKINGS,
+        );
+
+        if (is_array($all_roles)) {
+            foreach ($all_roles as $role_key => $role_data) {
+                $role_obj = get_role((string) $role_key);
+                if (! $role_obj instanceof WP_Role) {
+                    continue;
+                }
+
+                $candidates = array_merge(
+                    $candidates,
+                    array_keys((array) $role_obj->capabilities)
+                );
+            }
+        }
+
+        if (is_array($ui) && ! empty($ui['extra_capabilities'])) {
+            $candidates = array_merge($candidates, (array) $ui['extra_capabilities']);
+        }
+
+        $candidates = CAD_Access_Control::sanitize_capability_list($candidates);
+        sort($candidates, SORT_STRING);
+        return $candidates;
+    }
+
+    /**
+     * Apply capability set for selected roles from settings form.
+     *
+     * @param array $allowed_roles
+     */
+    private function apply_selected_role_capabilities_from_request($allowed_roles) {
+        $allowed_roles = CAD_Access_Control::sanitize_role_list($allowed_roles);
+        if (empty($allowed_roles)) {
+            return;
+        }
+
+        $raw_map = isset($_POST['ui_role_capabilities']) ? (array) wp_unslash($_POST['ui_role_capabilities']) : array();
+        $role_capability_map = CAD_Access_Control::sanitize_role_capability_map($raw_map);
+        $role_capability_map = $this->keep_map_keys_in_allowed_roles($role_capability_map, $allowed_roles);
+        $present_roles_raw = isset($_POST['ui_role_capabilities_present'])
+            ? (array) wp_unslash($_POST['ui_role_capabilities_present'])
+            : array();
+        $present_roles = CAD_Access_Control::sanitize_role_list(array_keys($present_roles_raw));
+        $present_roles = array_values(array_intersect($allowed_roles, $present_roles));
+        if (empty($present_roles)) {
+            return;
+        }
+
+        $current_user = wp_get_current_user();
+        $current_user_roles = $current_user instanceof WP_User ? (array) $current_user->roles : array();
+
+        foreach ($present_roles as $role_key) {
+            $role = get_role($role_key);
+            if (! $role instanceof WP_Role) {
+                continue;
+            }
+
+            $desired_caps = isset($role_capability_map[$role_key]) ? (array) $role_capability_map[$role_key] : array();
+            $desired_caps = CAD_Access_Control::sanitize_capability_list($desired_caps);
+            if (! in_array('read', $desired_caps, true)) {
+                $desired_caps[] = 'read';
+            }
+
+            // Prevent locking out the current settings manager role accidentally.
+            if (
+                current_user_can('manage_options') &&
+                in_array($role_key, $current_user_roles, true) &&
+                ! in_array('manage_options', $desired_caps, true)
+            ) {
+                $desired_caps[] = 'manage_options';
+            }
+
+            $desired_caps = array_values(array_unique($desired_caps));
+            $current_caps = CAD_Access_Control::sanitize_capability_list(array_keys((array) $role->capabilities));
+
+            foreach ($desired_caps as $capability_key) {
+                $role->add_cap($capability_key);
+            }
+
+            foreach ($current_caps as $capability_key) {
+                if (! in_array($capability_key, $desired_caps, true)) {
+                    $role->remove_cap($capability_key);
+                }
+            }
+        }
+    }
+
+    /**
      * @return array
      */
     private function get_sidebar_menu_candidates() {
@@ -1023,9 +1190,14 @@ class CAD_Admin_Panel {
      */
     private function get_current_role_sidebar_whitelist() {
         $ui = $this->access_control->get_ui_settings();
+        $settings = $this->access_control->get_settings();
+        $allowed_role_keys = CAD_Access_Control::sanitize_role_list(
+            isset($settings['allowed_roles']) ? $settings['allowed_roles'] : array()
+        );
         $role_sidebar_menus = CAD_Access_Control::sanitize_role_sidebar_menu_map(
             isset($ui['role_sidebar_menus']) ? $ui['role_sidebar_menus'] : array()
         );
+        $role_sidebar_menus = $this->keep_map_keys_in_allowed_roles($role_sidebar_menus, $allowed_role_keys);
 
         if (empty($role_sidebar_menus)) {
             return array();

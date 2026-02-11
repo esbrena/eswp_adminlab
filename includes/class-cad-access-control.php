@@ -75,9 +75,6 @@ class CAD_Access_Control {
         $normalized = wp_parse_args($settings, $defaults);
 
         $normalized['allowed_roles'] = self::sanitize_role_list($normalized['allowed_roles']);
-        if (empty($normalized['allowed_roles'])) {
-            $normalized['allowed_roles'] = array('administrator');
-        }
 
         $normalized['force_redirect'] = ! empty($normalized['force_redirect']) ? 1 : 0;
         $normalized['hide_menus']     = ! empty($normalized['hide_menus']) ? 1 : 0;
@@ -149,10 +146,6 @@ class CAD_Access_Control {
         }
 
         if ($this->is_super_admin_user($user->ID)) {
-            return true;
-        }
-
-        if (user_can($user, self::CAP_ACCESS_DASHBOARD)) {
             return true;
         }
 
@@ -308,10 +301,6 @@ class CAD_Access_Control {
         $settings = self::normalize_settings($settings);
         $roles    = self::sanitize_role_list($settings['allowed_roles']);
 
-        if (! in_array('administrator', $roles, true)) {
-            $roles[] = 'administrator';
-        }
-
         $caps = array(
             self::CAP_ACCESS_DASHBOARD,
             self::CAP_MANAGE_USERS,
@@ -323,14 +312,34 @@ class CAD_Access_Control {
         $extra_caps = isset($ui['extra_capabilities']) ? self::sanitize_capability_list($ui['extra_capabilities']) : array();
         $caps = array_values(array_unique(array_merge($caps, $extra_caps)));
 
-        foreach ($roles as $role_key) {
-            $role = get_role($role_key);
+        $all_roles = wp_roles();
+        if (! $all_roles instanceof WP_Roles || ! is_array($all_roles->roles)) {
+            return;
+        }
+
+        foreach ($all_roles->roles as $role_key => $role_data) {
+            $role = get_role((string) $role_key);
             if (! $role instanceof WP_Role) {
                 continue;
             }
 
-            foreach ($caps as $cap) {
-                $role->add_cap($cap);
+            if (in_array((string) $role_key, $roles, true)) {
+                foreach ($caps as $cap) {
+                    $role->add_cap($cap);
+                }
+                continue;
+            }
+
+            // Remove only plugin-owned caps from roles outside the selected list.
+            foreach (
+                array(
+                    self::CAP_ACCESS_DASHBOARD,
+                    self::CAP_MANAGE_USERS,
+                    self::CAP_MANAGE_COURSES,
+                    self::CAP_MANAGE_BOOKINGS,
+                ) as $plugin_cap
+            ) {
+                $role->remove_cap($plugin_cap);
             }
         }
     }
@@ -632,6 +641,27 @@ class CAD_Access_Control {
             if (! empty($menus)) {
                 $sanitized[$role_key] = $menus;
             }
+        }
+
+        return $sanitized;
+    }
+
+    /**
+     * @param mixed $role_capabilities
+     *
+     * @return array
+     */
+    public static function sanitize_role_capability_map($role_capabilities) {
+        if (! is_array($role_capabilities)) {
+            return array();
+        }
+
+        $sanitized = array();
+        $valid_roles = self::sanitize_role_list(array_keys($role_capabilities));
+
+        foreach ($valid_roles as $role_key) {
+            $caps = isset($role_capabilities[$role_key]) ? $role_capabilities[$role_key] : array();
+            $sanitized[$role_key] = self::sanitize_capability_list($caps);
         }
 
         return $sanitized;
