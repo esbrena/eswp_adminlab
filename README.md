@@ -10,6 +10,8 @@ Controlar de forma simple (seleccion directa):
 - Que seccion de **usuarios** pueden ver.
 - Que seccion de **posts** pueden ver (incluyendo seleccion por `post_type`).
 - Que **plugins** pueden usar desde sidebar.
+- Que **menu lateral** ve cada rol operativo (allow-list por rol).
+- Que **capabilities activas** tiene cada rol, en una vista de auditoria.
 - Que contenido de WordPress se oculta para simplificar el trabajo.
 
 Ademas, personalizar visualmente el panel:
@@ -27,6 +29,7 @@ Ademas, personalizar visualmente el panel:
 
 2. **Visibilidad granular de wp-admin**
    - Restriccion de menus top-level y submenus.
+   - Definicion de menu lateral por rol (ademas de reglas globales).
    - Aplicacion forzada de reglas de visibilidad (evita que vuelvan menus no permitidos).
    - El superadmin (o `manage_options` en single-site) mantiene vision completa del wp-admin.
    - Soporte de capabilities extra para que plugins terceros permitan acciones.
@@ -57,6 +60,10 @@ Ademas, personalizar visualmente el panel:
    - Logo, textos de cabecera y colores.
    - CSS custom.
 
+7. **Permisos por rol (auditoria)**
+   - Vista completa de roles y capabilities activas (`true`) desde configuracion.
+   - Ayuda para validar rapidamente que permisos reales tiene cada rol operativo.
+
 ## Instalacion
 
 1. Copia la carpeta del plugin en:
@@ -65,6 +72,8 @@ Ademas, personalizar visualmente el panel:
 3. Entra en **Panel operativo > Configuracion**.
 4. Define:
    - Roles operativos afectados.
+   - Menu lateral permitido por rol.
+   - Revision de capabilities por rol (auditoria en solo lectura).
    - Que ven en Plugins / Usuarios / Posts.
    - Que elementos de WP ocultar.
    - Post types y claves meta para integrar cursos/reservas por usuario.

@@ -31,6 +31,7 @@ class CAD_Access_Control {
                 'allowed_post_types'        => array('post'),
                 'show_plugins_section'      => 1,
                 'allowed_plugin_menus'      => array(),
+                'role_sidebar_menus'        => array(),
                 'extra_visible_top_menus'   => array(),
                 'hidden_top_menus'          => array(),
                 'extra_visible_submenus'    => array(),
@@ -438,6 +439,7 @@ class CAD_Access_Control {
 
         $ui['allowed_post_types']   = self::sanitize_post_type_list($ui['allowed_post_types']);
         $ui['allowed_plugin_menus'] = self::sanitize_menu_slug_list($ui['allowed_plugin_menus']);
+        $ui['role_sidebar_menus'] = self::sanitize_role_sidebar_menu_map($ui['role_sidebar_menus']);
         $ui['extra_visible_top_menus'] = self::sanitize_menu_slug_list($ui['extra_visible_top_menus']);
         $ui['hidden_top_menus'] = self::sanitize_menu_slug_list($ui['hidden_top_menus']);
         $ui['extra_visible_submenus'] = self::sanitize_submenu_id_list($ui['extra_visible_submenus']);
@@ -608,6 +610,31 @@ class CAD_Access_Control {
         }
 
         return array_values(array_unique($sanitized));
+    }
+
+    /**
+     * @param mixed $role_sidebar_menus
+     *
+     * @return array
+     */
+    public static function sanitize_role_sidebar_menu_map($role_sidebar_menus) {
+        if (! is_array($role_sidebar_menus)) {
+            return array();
+        }
+
+        $sanitized = array();
+        $valid_roles = self::sanitize_role_list(array_keys($role_sidebar_menus));
+
+        foreach ($valid_roles as $role_key) {
+            $menus = isset($role_sidebar_menus[$role_key]) ? $role_sidebar_menus[$role_key] : array();
+            $menus = self::sanitize_menu_slug_list($menus);
+
+            if (! empty($menus)) {
+                $sanitized[$role_key] = $menus;
+            }
+        }
+
+        return $sanitized;
     }
 
     /**

@@ -190,6 +190,7 @@ class CAD_Admin_Panel {
             'allowed_post_types'        => isset($_POST['ui_allowed_post_types']) ? (array) wp_unslash($_POST['ui_allowed_post_types']) : array(),
             'show_plugins_section'      => isset($_POST['ui_show_plugins_section']) ? 1 : 0,
             'allowed_plugin_menus'      => isset($_POST['ui_allowed_plugin_menus']) ? (array) wp_unslash($_POST['ui_allowed_plugin_menus']) : array(),
+            'role_sidebar_menus'        => isset($_POST['ui_role_sidebar_menus']) ? (array) wp_unslash($_POST['ui_role_sidebar_menus']) : array(),
             'extra_visible_top_menus'   => array(),
             'hidden_top_menus'          => array(),
             'extra_visible_submenus'    => array(),
@@ -537,8 +538,13 @@ class CAD_Admin_Panel {
 
         $available_post_types = $this->get_available_post_type_options();
         $plugin_candidates = $this->get_plugin_menu_candidates();
+        $sidebar_menu_candidates = $this->get_sidebar_menu_candidates();
         $selected_plugin_menus = CAD_Access_Control::sanitize_menu_slug_list($ui['allowed_plugin_menus']);
         $unknown_plugin_menus = array_diff($selected_plugin_menus, array_keys($plugin_candidates));
+        $role_sidebar_menus = CAD_Access_Control::sanitize_role_sidebar_menu_map(
+            isset($ui['role_sidebar_menus']) ? $ui['role_sidebar_menus'] : array()
+        );
+        $role_capability_matrix = $this->get_roles_capability_matrix($all_roles);
         $extra_capabilities = implode(
             ', ',
             CAD_Access_Control::sanitize_capability_list(
@@ -604,7 +610,92 @@ class CAD_Admin_Panel {
                     </tbody>
                 </table>
 
-                <h2><?php esc_html_e('2) Que secciones puede ver el admin operativo', 'custom-admin-dashboard'); ?></h2>
+                <h2><?php esc_html_e('2) Menu lateral por rol', 'custom-admin-dashboard'); ?></h2>
+                <table class="form-table" role="presentation">
+                    <tbody>
+                        <tr>
+                            <th scope="row"><?php esc_html_e('Definir sidebar por rol', 'custom-admin-dashboard'); ?></th>
+                            <td>
+                                <p class="description">
+                                    <?php esc_html_e('Selecciona que menus laterales podra ver cada rol. Si un rol no tiene ningun menu marcado, se aplica la visibilidad general.', 'custom-admin-dashboard'); ?>
+                                </p>
+
+                                <?php if (empty($sidebar_menu_candidates)) : ?>
+                                    <p><?php esc_html_e('No hay menus laterales detectados para configurar.', 'custom-admin-dashboard'); ?></p>
+                                <?php else : ?>
+                                    <?php foreach ($all_roles as $role_key => $role_data) : ?>
+                                        <?php
+                                        $role_label = isset($role_data['name']) ? (string) $role_data['name'] : (string) $role_key;
+                                        $selected_role_menus = isset($role_sidebar_menus[$role_key]) ? (array) $role_sidebar_menus[$role_key] : array();
+                                        ?>
+                                        <div class="cad-card" style="margin:12px 0;padding:12px;">
+                                            <p>
+                                                <strong><?php echo esc_html($role_label); ?></strong>
+                                                <code><?php echo esc_html($role_key); ?></code>
+                                            </p>
+                                            <fieldset class="cad-checkbox-grid cad-child-fieldset">
+                                                <?php foreach ($sidebar_menu_candidates as $menu_slug => $menu_label) : ?>
+                                                    <label>
+                                                        <input
+                                                            type="checkbox"
+                                                            name="ui_role_sidebar_menus[<?php echo esc_attr($role_key); ?>][]"
+                                                            value="<?php echo esc_attr($menu_slug); ?>"
+                                                            <?php checked(in_array($menu_slug, $selected_role_menus, true)); ?>
+                                                        />
+                                                        <?php echo esc_html($menu_label); ?>
+                                                        <code><?php echo esc_html($menu_slug); ?></code>
+                                                    </label>
+                                                <?php endforeach; ?>
+                                            </fieldset>
+                                        </div>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
+
+                                <p class="description">
+                                    <?php esc_html_e('El menu "cad-dashboard" siempre se conserva para evitar bloqueos de acceso.', 'custom-admin-dashboard'); ?>
+                                </p>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h2><?php esc_html_e('3) Permisos por rol (capabilities activas)', 'custom-admin-dashboard'); ?></h2>
+                <table class="form-table" role="presentation">
+                    <tbody>
+                        <tr>
+                            <th scope="row"><?php esc_html_e('Auditoria de roles', 'custom-admin-dashboard'); ?></th>
+                            <td>
+                                <?php foreach ($all_roles as $role_key => $role_data) : ?>
+                                    <?php
+                                    $role_label = isset($role_data['name']) ? (string) $role_data['name'] : (string) $role_key;
+                                    $role_caps = isset($role_capability_matrix[$role_key]) ? (array) $role_capability_matrix[$role_key] : array();
+                                    ?>
+                                    <details style="margin: 8px 0;">
+                                        <summary>
+                                            <strong><?php echo esc_html($role_label); ?></strong>
+                                            <code><?php echo esc_html($role_key); ?></code>
+                                            (<?php echo esc_html((string) count($role_caps)); ?>)
+                                        </summary>
+                                        <?php if (empty($role_caps)) : ?>
+                                            <p><?php esc_html_e('Este rol no tiene capabilities activas.', 'custom-admin-dashboard'); ?></p>
+                                        <?php else : ?>
+                                            <p>
+                                                <?php foreach ($role_caps as $capability_key) : ?>
+                                                    <code><?php echo esc_html($capability_key); ?></code><br />
+                                                <?php endforeach; ?>
+                                            </p>
+                                        <?php endif; ?>
+                                    </details>
+                                <?php endforeach; ?>
+                                <p class="description">
+                                    <?php esc_html_e('Vista informativa: muestra capabilities con valor true en cada rol de WordPress.', 'custom-admin-dashboard'); ?>
+                                </p>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h2><?php esc_html_e('4) Que secciones puede ver el admin operativo', 'custom-admin-dashboard'); ?></h2>
                 <table class="form-table" role="presentation">
                     <tbody>
                         <tr>
@@ -699,7 +790,7 @@ class CAD_Admin_Panel {
                     </tbody>
                 </table>
 
-                <h2><?php esc_html_e('3) Limpieza de contenido innecesario de WordPress', 'custom-admin-dashboard'); ?></h2>
+                <h2><?php esc_html_e('5) Limpieza de contenido innecesario de WordPress', 'custom-admin-dashboard'); ?></h2>
                 <table class="form-table" role="presentation">
                     <tbody>
                         <tr>
@@ -732,7 +823,7 @@ class CAD_Admin_Panel {
                     </tbody>
                 </table>
 
-                <h2><?php esc_html_e('4) Integracion cursos y reservas por usuario', 'custom-admin-dashboard'); ?></h2>
+                <h2><?php esc_html_e('6) Integracion cursos y reservas por usuario', 'custom-admin-dashboard'); ?></h2>
                 <table class="form-table" role="presentation">
                     <tbody>
                         <tr>
@@ -759,7 +850,7 @@ class CAD_Admin_Panel {
                     </tbody>
                 </table>
 
-                <h2><?php esc_html_e('5) Branding y personalizacion visual', 'custom-admin-dashboard'); ?></h2>
+                <h2><?php esc_html_e('7) Branding y personalizacion visual', 'custom-admin-dashboard'); ?></h2>
                 <table class="form-table" role="presentation">
                     <tbody>
                         <tr>
@@ -856,6 +947,246 @@ class CAD_Admin_Panel {
     /**
      * @return array
      */
+    private function get_sidebar_menu_candidates() {
+        global $menu;
+
+        if (! is_array($menu)) {
+            return array(
+                'cad-dashboard' => __('Panel operativo', 'custom-admin-dashboard'),
+            );
+        }
+
+        $candidates = array();
+        foreach ($menu as $item) {
+            $slug = isset($item[2]) ? (string) $item[2] : '';
+            if ($slug === '' || strpos($slug, 'separator') === 0) {
+                continue;
+            }
+
+            $label = $this->clean_menu_label(isset($item[0]) ? (string) $item[0] : $slug);
+            $candidates[$slug] = $label !== '' ? $label : $slug;
+        }
+
+        if (! isset($candidates['cad-dashboard'])) {
+            $candidates['cad-dashboard'] = __('Panel operativo', 'custom-admin-dashboard');
+        }
+
+        if ($this->access_control->can_manage_users() && ! isset($candidates['cad-users'])) {
+            $candidates['cad-users'] = __('Panel operativo > Usuarios', 'custom-admin-dashboard');
+        }
+
+        asort($candidates);
+
+        if (isset($candidates['cad-dashboard'])) {
+            $dashboard = $candidates['cad-dashboard'];
+            unset($candidates['cad-dashboard']);
+            $candidates = array_merge(array('cad-dashboard' => $dashboard), $candidates);
+        }
+
+        return $candidates;
+    }
+
+    /**
+     * @param array $all_roles
+     *
+     * @return array
+     */
+    private function get_roles_capability_matrix($all_roles) {
+        if (! is_array($all_roles)) {
+            return array();
+        }
+
+        $matrix = array();
+        foreach ($all_roles as $role_key => $role_data) {
+            $role_obj = get_role((string) $role_key);
+            if (! $role_obj instanceof WP_Role) {
+                $matrix[(string) $role_key] = array();
+                continue;
+            }
+
+            $caps = array();
+            foreach ((array) $role_obj->capabilities as $cap_key => $is_granted) {
+                if (! empty($is_granted)) {
+                    $caps[] = (string) $cap_key;
+                }
+            }
+
+            sort($caps, SORT_STRING);
+            $matrix[(string) $role_key] = $caps;
+        }
+
+        return $matrix;
+    }
+
+    /**
+     * @return array
+     */
+    private function get_current_role_sidebar_whitelist() {
+        $ui = $this->access_control->get_ui_settings();
+        $role_sidebar_menus = CAD_Access_Control::sanitize_role_sidebar_menu_map(
+            isset($ui['role_sidebar_menus']) ? $ui['role_sidebar_menus'] : array()
+        );
+
+        if (empty($role_sidebar_menus)) {
+            return array();
+        }
+
+        $user = wp_get_current_user();
+        if (! $user instanceof WP_User || empty($user->roles)) {
+            return array();
+        }
+
+        $whitelist = array();
+        foreach ((array) $user->roles as $role_key) {
+            $role_key = sanitize_key((string) $role_key);
+            if ($role_key === '' || ! isset($role_sidebar_menus[$role_key])) {
+                continue;
+            }
+
+            $whitelist = array_merge($whitelist, (array) $role_sidebar_menus[$role_key]);
+        }
+
+        $whitelist = CAD_Access_Control::sanitize_menu_slug_list($whitelist);
+        if (! empty($whitelist) && ! in_array('cad-dashboard', $whitelist, true)) {
+            $whitelist[] = 'cad-dashboard';
+        }
+
+        return array_values(array_unique($whitelist));
+    }
+
+    /**
+     * @param array $allowed_top
+     *
+     * @return array
+     */
+    private function filter_top_level_by_current_role_sidebar_menus($allowed_top) {
+        $allowed_top = CAD_Access_Control::sanitize_menu_slug_list((array) $allowed_top);
+        $role_whitelist = $this->get_current_role_sidebar_whitelist();
+
+        if (empty($role_whitelist)) {
+            return $allowed_top;
+        }
+
+        $allowed_top = array_values(array_intersect($allowed_top, $role_whitelist));
+        if (! in_array('cad-dashboard', $allowed_top, true)) {
+            $allowed_top[] = 'cad-dashboard';
+        }
+
+        return array_values(array_unique($allowed_top));
+    }
+
+    /**
+     * @param array $allowed_sub
+     * @param array $allowed_top
+     *
+     * @return array
+     */
+    private function filter_submenus_by_allowed_top_level($allowed_sub, $allowed_top) {
+        global $submenu;
+
+        $allowed_sub = CAD_Access_Control::sanitize_menu_slug_list((array) $allowed_sub);
+        $allowed_top = CAD_Access_Control::sanitize_menu_slug_list((array) $allowed_top);
+
+        if (empty($allowed_sub)) {
+            return array('cad-dashboard');
+        }
+
+        if (! is_array($submenu) || empty($allowed_top)) {
+            if (! in_array('cad-dashboard', $allowed_sub, true)) {
+                $allowed_sub[] = 'cad-dashboard';
+            }
+            return array_values(array_unique($allowed_sub));
+        }
+
+        $parents_by_submenu_slug = array();
+        foreach ($submenu as $parent_slug => $submenu_items) {
+            if (! is_array($submenu_items)) {
+                continue;
+            }
+
+            $parent_slug = (string) $parent_slug;
+            foreach ($submenu_items as $submenu_item) {
+                $submenu_slug = isset($submenu_item[2]) ? (string) $submenu_item[2] : '';
+                if ($submenu_slug === '') {
+                    continue;
+                }
+
+                if (! isset($parents_by_submenu_slug[$submenu_slug])) {
+                    $parents_by_submenu_slug[$submenu_slug] = array();
+                }
+                $parents_by_submenu_slug[$submenu_slug][] = $parent_slug;
+            }
+        }
+
+        $filtered = array();
+        foreach ($allowed_sub as $submenu_slug) {
+            if ($submenu_slug === 'cad-dashboard') {
+                $filtered[] = $submenu_slug;
+                continue;
+            }
+
+            if (! isset($parents_by_submenu_slug[$submenu_slug])) {
+                if (in_array($submenu_slug, $allowed_top, true)) {
+                    $filtered[] = $submenu_slug;
+                }
+                continue;
+            }
+
+            $parents = (array) $parents_by_submenu_slug[$submenu_slug];
+            if (! empty(array_intersect($parents, $allowed_top))) {
+                $filtered[] = $submenu_slug;
+            }
+        }
+
+        if (! in_array('cad-dashboard', $filtered, true)) {
+            $filtered[] = 'cad-dashboard';
+        }
+
+        return array_values(array_unique($filtered));
+    }
+
+    /**
+     * @return bool
+     */
+    private function is_current_request_allowed_by_role_sidebar() {
+        global $pagenow;
+
+        $role_whitelist = $this->get_current_role_sidebar_whitelist();
+        if (empty($role_whitelist)) {
+            return true;
+        }
+
+        $current_page = isset($_GET['page']) ? sanitize_text_field(wp_unslash($_GET['page'])) : '';
+        if ($current_page !== '' && strpos($current_page, 'cad-') === 0) {
+            return true;
+        }
+
+        $allowed_top = $this->get_allowed_top_level_menu_slugs_for_operational_admin();
+        $allowed_sub = $this->get_allowed_submenu_slugs_for_operational_admin($allowed_top);
+
+        if (in_array($pagenow, array('edit.php', 'post.php', 'post-new.php'), true)) {
+            $post_type = $this->get_request_post_type($pagenow);
+            $required_top = $post_type === 'post' ? 'edit.php' : 'edit.php?post_type=' . $post_type;
+
+            return in_array($required_top, $allowed_top, true);
+        }
+
+        foreach (array_merge($allowed_top, $allowed_sub) as $menu_slug) {
+            if ($this->menu_slug_matches_request($menu_slug, $pagenow, $current_page)) {
+                return true;
+            }
+
+            if ($current_page !== '' && $menu_slug !== '' && strpos($current_page, $menu_slug) === 0) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @return array
+     */
     private function get_allowed_top_level_menu_slugs_for_operational_admin() {
         $ui = $this->access_control->get_ui_settings();
 
@@ -888,6 +1219,7 @@ class CAD_Admin_Panel {
         }
 
         $allowed = array_values(array_unique($allowed));
+        $allowed = $this->filter_top_level_by_current_role_sidebar_menus($allowed);
 
         if (! in_array('cad-dashboard', $allowed, true)) {
             $allowed[] = 'cad-dashboard';
@@ -946,7 +1278,8 @@ class CAD_Admin_Panel {
             $allowed[] = 'cad-settings';
         }
 
-        return array_values(array_unique($allowed));
+        $allowed = array_values(array_unique($allowed));
+        return $this->filter_submenus_by_allowed_top_level($allowed, $allowed_top);
     }
 
     /**
@@ -1064,24 +1397,30 @@ class CAD_Admin_Panel {
             return true;
         }
 
+        $allowed = false;
+
         if ($pagenow === 'profile.php') {
-            return ! empty($ui['show_profile_menu']);
+            $allowed = ! empty($ui['show_profile_menu']);
         }
 
-        if (in_array($pagenow, array('users.php', 'user-edit.php', 'user-new.php'), true)) {
-            return $this->access_control->can_manage_users();
+        if (! $allowed && in_array($pagenow, array('users.php', 'user-edit.php', 'user-new.php'), true)) {
+            $allowed = $this->access_control->can_manage_users();
         }
 
-        if (in_array($pagenow, array('edit.php', 'post.php', 'post-new.php'), true)) {
+        if (! $allowed && in_array($pagenow, array('edit.php', 'post.php', 'post-new.php'), true)) {
             $post_type = $this->get_request_post_type($pagenow);
-            return $this->access_control->can_access_post_type($post_type);
+            $allowed = $this->access_control->can_access_post_type($post_type);
         }
 
-        if ($this->is_allowed_plugin_request($pagenow, $ui)) {
-            return true;
+        if (! $allowed && $this->is_allowed_plugin_request($pagenow, $ui)) {
+            $allowed = true;
         }
 
-        return false;
+        if (! $allowed) {
+            return false;
+        }
+
+        return $this->is_current_request_allowed_by_role_sidebar();
     }
 
     /**
