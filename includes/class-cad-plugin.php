@@ -21,6 +21,11 @@ class CAD_Plugin {
     private $admin_panel;
 
     /**
+     * @var CAD_User_Manager
+     */
+    private $user_manager;
+
+    /**
      * @return CAD_Plugin
      */
     public static function instance() {
@@ -41,11 +46,13 @@ class CAD_Plugin {
 
         $this->access_control = new CAD_Access_Control();
         $this->admin_panel    = new CAD_Admin_Panel($this->access_control);
+        $this->user_manager   = new CAD_User_Manager();
     }
 
     private function load_dependencies() {
         require_once CAD_PLUGIN_DIR . 'includes/class-cad-access-control.php';
         require_once CAD_PLUGIN_DIR . 'includes/class-cad-admin-panel.php';
+        require_once CAD_PLUGIN_DIR . 'includes/class-cad-user-manager.php';
     }
 
     private function load_textdomain() {
