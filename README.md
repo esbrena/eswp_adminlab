@@ -11,9 +11,8 @@ Plugin para dos funciones principales en `wp-admin`:
 - Aplica automaticamente ese CSS solo a usuarios que tienen ese rol.
 - Si un usuario tiene varios roles, combina el CSS de todos esos roles.
 - Nueva pantalla de gestion de usuarios con:
-  - listado y edicion de usuarios,
-  - edicion de datos base (email, nombre, nickname, bio, rol, password),
-  - edicion de metadatos de usuario (incluyendo metadatos ACF),
+  - listado y edicion visual de usuarios tipo `cie_user` y `cie_new_user`,
+  - formulario cerrado a campos ACF definidos (profile_pic, name, birthdate, email, phone, adscription_university, university_role, address, job_address, experimental_project, use_needs, planned_equipment, use_period, user_type, aval_name, aval_mail, courses_progress),
   - paneles de relaciones detectadas: cursos, lecciones, examenes y reservas.
 - Ajustes configurables para relaciones:
   - post types de cursos/lecciones/examenes/reservas,
@@ -25,7 +24,7 @@ Plugin para dos funciones principales en `wp-admin`:
 2. Ve a **Ajustes > CSS por rol** para:
    - configurar estilos por rol,
    - configurar post types y meta keys de relaciones de usuario.
-3. Ve a **Herramientas > Gestion usuarios CAD** para editar usuarios y relaciones.
+3. Ve a **Herramientas > Gestion usuarios CAD** para editar esos perfiles y sus relaciones.
 
 ## Notas
 

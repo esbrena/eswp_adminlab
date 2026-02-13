@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Custom Admin Dashboard
  * Description: CSS personalizado por rol y gestion avanzada de usuarios en wp-admin.
- * Version: 2.2.0
+ * Version: 2.3.0
  * Author: AdminLab
  * Text Domain: custom-admin-dashboard
  */
@@ -11,7 +11,7 @@ if (! defined('ABSPATH')) {
     exit;
 }
 
-define('CAD_VERSION', '2.2.0');
+define('CAD_VERSION', '2.3.0');
 define('CAD_PLUGIN_FILE', __FILE__);
 define('CAD_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('CAD_PLUGIN_URL', plugin_dir_url(__FILE__));

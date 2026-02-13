@@ -8,7 +8,7 @@ class CAD_User_Manager {
     /**
      * @var int
      */
-    const LIST_LIMIT = 100;
+    const LIST_LIMIT = 200;
 
     /**
      * @var int
@@ -48,7 +48,7 @@ class CAD_User_Manager {
     }
 
     /**
-     * Handle user save requests.
+     * Handle custom user save requests.
      */
     public function handle_admin_requests() {
         if (! is_admin()) {
@@ -62,7 +62,7 @@ class CAD_User_Manager {
 
         if (
             ! isset($_POST['cad_action']) ||
-            sanitize_key(wp_unslash($_POST['cad_action'])) !== 'save_user'
+            sanitize_key(wp_unslash($_POST['cad_action'])) !== 'save_cie_user'
         ) {
             return;
         }
@@ -71,7 +71,7 @@ class CAD_User_Manager {
             wp_die(esc_html__('No tienes permisos para gestionar usuarios.', 'custom-admin-dashboard'));
         }
 
-        check_admin_referer('cad_save_user');
+        check_admin_referer('cad_save_cie_user');
 
         $user_id = isset($_POST['user_id']) ? absint($_POST['user_id']) : 0;
         if ($user_id <= 0) {
@@ -83,13 +83,15 @@ class CAD_User_Manager {
             wp_die(esc_html__('No se ha encontrado el usuario.', 'custom-admin-dashboard'));
         }
 
+        if (! $this->user_matches_target_type($user)) {
+            wp_die(esc_html__('Este usuario no pertenece a los tipos permitidos.', 'custom-admin-dashboard'));
+        }
+
         if (! current_user_can('edit_user', $user_id)) {
             wp_die(esc_html__('No tienes permisos para editar este usuario.', 'custom-admin-dashboard'));
         }
 
-        $this->save_user_basic_data($user_id);
-        $this->save_user_role($user_id);
-        $this->save_user_meta_values($user_id);
+        $this->save_profile_fields($user_id);
 
         wp_safe_redirect(
             add_query_arg(
@@ -125,51 +127,24 @@ class CAD_User_Manager {
     }
 
     /**
-     * Render users list.
+     * Render users list page.
      */
     private function render_user_list_page() {
         $search = isset($_GET['s']) ? sanitize_text_field(wp_unslash($_GET['s'])) : '';
-        $role_filter = isset($_GET['role']) ? sanitize_key(wp_unslash($_GET['role'])) : '';
-
-        $query_args = array(
-            'number'  => self::LIST_LIMIT,
-            'orderby' => 'ID',
-            'order'   => 'DESC',
-            'fields'  => array('ID', 'user_login', 'user_email', 'display_name', 'roles'),
-        );
-
-        if ($search !== '') {
-            $query_args['search'] = '*' . $search . '*';
-            $query_args['search_columns'] = array('user_login', 'user_email', 'display_name');
-        }
-
-        if ($role_filter !== '') {
-            $query_args['role'] = $role_filter;
-        }
-
-        $users_query = new WP_User_Query($query_args);
-        $users = $users_query->get_results();
-
-        $wp_roles = wp_roles();
-        $all_roles = $wp_roles instanceof WP_Roles ? $wp_roles->roles : array();
+        $users  = $this->get_target_users($search);
         ?>
         <div class="wrap">
-            <h1><?php esc_html_e('Gestion de usuarios CAD', 'custom-admin-dashboard'); ?></h1>
+            <h1><?php esc_html_e('Gestion usuarios CAD', 'custom-admin-dashboard'); ?></h1>
+            <p class="description">
+                <?php esc_html_e('Solo se muestran usuarios tipo cie_user y cie_new_user.', 'custom-admin-dashboard'); ?>
+            </p>
 
             <form method="get" action="<?php echo esc_url(admin_url('tools.php')); ?>">
                 <input type="hidden" name="page" value="cad-user-management" />
                 <p class="search-box">
                     <label class="screen-reader-text" for="cad-user-search"><?php esc_html_e('Buscar usuarios', 'custom-admin-dashboard'); ?></label>
                     <input type="search" id="cad-user-search" name="s" value="<?php echo esc_attr($search); ?>" />
-                    <select name="role">
-                        <option value=""><?php esc_html_e('Todos los roles', 'custom-admin-dashboard'); ?></option>
-                        <?php foreach ($all_roles as $role_key => $role_data) : ?>
-                            <option value="<?php echo esc_attr($role_key); ?>" <?php selected($role_filter, $role_key); ?>>
-                                <?php echo esc_html(isset($role_data['name']) ? (string) $role_data['name'] : (string) $role_key); ?>
-                            </option>
-                        <?php endforeach; ?>
-                    </select>
-                    <?php submit_button(__('Filtrar', 'custom-admin-dashboard'), 'secondary', '', false); ?>
+                    <?php submit_button(__('Buscar', 'custom-admin-dashboard'), 'secondary', '', false); ?>
                 </p>
             </form>
 
@@ -177,21 +152,29 @@ class CAD_User_Manager {
                 <thead>
                     <tr>
                         <th><?php esc_html_e('ID', 'custom-admin-dashboard'); ?></th>
-                        <th><?php esc_html_e('Usuario', 'custom-admin-dashboard'); ?></th>
+                        <th><?php esc_html_e('Tipo', 'custom-admin-dashboard'); ?></th>
+                        <th><?php esc_html_e('Nombre', 'custom-admin-dashboard'); ?></th>
                         <th><?php esc_html_e('Email', 'custom-admin-dashboard'); ?></th>
-                        <th><?php esc_html_e('Nombre mostrado', 'custom-admin-dashboard'); ?></th>
-                        <th><?php esc_html_e('Roles', 'custom-admin-dashboard'); ?></th>
                         <th><?php esc_html_e('Acciones', 'custom-admin-dashboard'); ?></th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php if (empty($users)) : ?>
                         <tr>
-                            <td colspan="6"><?php esc_html_e('No se han encontrado usuarios.', 'custom-admin-dashboard'); ?></td>
+                            <td colspan="5"><?php esc_html_e('No hay usuarios que coincidan.', 'custom-admin-dashboard'); ?></td>
                         </tr>
                     <?php else : ?>
                         <?php foreach ($users as $user) : ?>
                             <?php
+                            $type_label = $this->get_user_type_label($user);
+                            $name_value = (string) get_user_meta($user->ID, 'name', true);
+                            if ($name_value === '') {
+                                $name_value = (string) $user->display_name;
+                            }
+                            $email_value = (string) get_user_meta($user->ID, 'email', true);
+                            if ($email_value === '') {
+                                $email_value = (string) $user->user_email;
+                            }
                             $edit_url = add_query_arg(
                                 array(
                                     'page'    => 'cad-user-management',
@@ -203,13 +186,12 @@ class CAD_User_Manager {
                             ?>
                             <tr>
                                 <td><?php echo esc_html((string) $user->ID); ?></td>
-                                <td><?php echo esc_html((string) $user->user_login); ?></td>
-                                <td><?php echo esc_html((string) $user->user_email); ?></td>
-                                <td><?php echo esc_html((string) $user->display_name); ?></td>
-                                <td><?php echo esc_html(implode(', ', (array) $user->roles)); ?></td>
+                                <td><code><?php echo esc_html($type_label); ?></code></td>
+                                <td><?php echo esc_html($name_value); ?></td>
+                                <td><?php echo esc_html($email_value); ?></td>
                                 <td>
                                     <a class="button button-primary" href="<?php echo esc_url($edit_url); ?>">
-                                        <?php esc_html_e('Editar', 'custom-admin-dashboard'); ?>
+                                        <?php esc_html_e('Editar perfil visual', 'custom-admin-dashboard'); ?>
                                     </a>
                                 </td>
                             </tr>
@@ -222,7 +204,7 @@ class CAD_User_Manager {
     }
 
     /**
-     * Render user edition page.
+     * Render single user edit page.
      *
      * @param int $user_id
      */
@@ -233,24 +215,25 @@ class CAD_User_Manager {
             wp_die(esc_html__('No se ha encontrado el usuario.', 'custom-admin-dashboard'));
         }
 
+        if (! $this->user_matches_target_type($user)) {
+            wp_die(esc_html__('Este usuario no pertenece a los tipos permitidos.', 'custom-admin-dashboard'));
+        }
+
         if (! current_user_can('edit_user', $user_id)) {
             wp_die(esc_html__('No tienes permisos para editar este usuario.', 'custom-admin-dashboard'));
         }
 
-        $all_meta = get_user_meta($user_id);
-        $meta_keys = array_keys((array) $all_meta);
-        sort($meta_keys, SORT_STRING);
+        if (function_exists('wp_enqueue_media')) {
+            wp_enqueue_media();
+        }
 
-        $role_options = wp_roles();
-        $role_options = $role_options instanceof WP_Roles ? $role_options->roles : array();
-        $user_primary_role = ! empty($user->roles) ? (string) $user->roles[0] : '';
         ?>
         <div class="wrap">
             <h1>
                 <?php
                 printf(
                     /* translators: %s: username */
-                    esc_html__('Editar usuario: %s', 'custom-admin-dashboard'),
+                    esc_html__('Perfil visual de usuario: %s', 'custom-admin-dashboard'),
                     esc_html((string) $user->user_login)
                 );
                 ?>
@@ -264,298 +247,465 @@ class CAD_User_Manager {
             </p>
 
             <form method="post" action="<?php echo esc_url(add_query_arg(array('page' => 'cad-user-management'), admin_url('tools.php'))); ?>">
-                <?php wp_nonce_field('cad_save_user'); ?>
-                <input type="hidden" name="cad_action" value="save_user" />
+                <?php wp_nonce_field('cad_save_cie_user'); ?>
+                <input type="hidden" name="cad_action" value="save_cie_user" />
                 <input type="hidden" name="user_id" value="<?php echo esc_attr((string) $user_id); ?>" />
 
-                <h2><?php esc_html_e('Datos base del usuario', 'custom-admin-dashboard'); ?></h2>
                 <table class="form-table" role="presentation">
                     <tbody>
-                        <tr>
-                            <th scope="row"><?php esc_html_e('Usuario (login)', 'custom-admin-dashboard'); ?></th>
-                            <td><code><?php echo esc_html((string) $user->user_login); ?></code></td>
-                        </tr>
-                        <tr>
-                            <th scope="row"><label for="cad-user-email"><?php esc_html_e('Email', 'custom-admin-dashboard'); ?></label></th>
-                            <td><input type="email" id="cad-user-email" class="regular-text" name="user_email" value="<?php echo esc_attr((string) $user->user_email); ?>" /></td>
-                        </tr>
-                        <tr>
-                            <th scope="row"><label for="cad-user-first-name"><?php esc_html_e('Nombre', 'custom-admin-dashboard'); ?></label></th>
-                            <td><input type="text" id="cad-user-first-name" class="regular-text" name="first_name" value="<?php echo esc_attr((string) get_user_meta($user_id, 'first_name', true)); ?>" /></td>
-                        </tr>
-                        <tr>
-                            <th scope="row"><label for="cad-user-last-name"><?php esc_html_e('Apellidos', 'custom-admin-dashboard'); ?></label></th>
-                            <td><input type="text" id="cad-user-last-name" class="regular-text" name="last_name" value="<?php echo esc_attr((string) get_user_meta($user_id, 'last_name', true)); ?>" /></td>
-                        </tr>
-                        <tr>
-                            <th scope="row"><label for="cad-user-nickname"><?php esc_html_e('Nickname', 'custom-admin-dashboard'); ?></label></th>
-                            <td><input type="text" id="cad-user-nickname" class="regular-text" name="nickname" value="<?php echo esc_attr((string) $user->nickname); ?>" /></td>
-                        </tr>
-                        <tr>
-                            <th scope="row"><label for="cad-user-display-name"><?php esc_html_e('Nombre a mostrar', 'custom-admin-dashboard'); ?></label></th>
-                            <td><input type="text" id="cad-user-display-name" class="regular-text" name="display_name" value="<?php echo esc_attr((string) $user->display_name); ?>" /></td>
-                        </tr>
-                        <tr>
-                            <th scope="row"><label for="cad-user-url"><?php esc_html_e('Web', 'custom-admin-dashboard'); ?></label></th>
-                            <td><input type="url" id="cad-user-url" class="regular-text" name="user_url" value="<?php echo esc_attr((string) $user->user_url); ?>" /></td>
-                        </tr>
-                        <tr>
-                            <th scope="row"><label for="cad-user-description"><?php esc_html_e('Biografia', 'custom-admin-dashboard'); ?></label></th>
-                            <td><textarea id="cad-user-description" class="large-text" rows="4" name="description"><?php echo esc_textarea((string) $user->description); ?></textarea></td>
-                        </tr>
-                        <tr>
-                            <th scope="row"><label for="cad-user-role"><?php esc_html_e('Rol principal', 'custom-admin-dashboard'); ?></label></th>
-                            <td>
-                                <select id="cad-user-role" name="primary_role">
-                                    <option value=""><?php esc_html_e('Sin cambios', 'custom-admin-dashboard'); ?></option>
-                                    <?php foreach ($role_options as $role_key => $role_data) : ?>
-                                        <option value="<?php echo esc_attr($role_key); ?>" <?php selected($user_primary_role, $role_key); ?>>
-                                            <?php echo esc_html(isset($role_data['name']) ? (string) $role_data['name'] : (string) $role_key); ?>
-                                        </option>
-                                    <?php endforeach; ?>
-                                </select>
-                                <p class="description"><?php esc_html_e('Se actualiza solo si tienes permiso para promocionar usuarios.', 'custom-admin-dashboard'); ?></p>
-                            </td>
-                        </tr>
-                        <tr>
-                            <th scope="row"><label for="cad-user-password"><?php esc_html_e('Nueva contrasena', 'custom-admin-dashboard'); ?></label></th>
-                            <td>
-                                <input type="password" id="cad-user-password" class="regular-text" name="user_pass" value="" autocomplete="new-password" />
-                                <p class="description"><?php esc_html_e('Opcional. Si lo dejas vacio, no cambia la contrasena.', 'custom-admin-dashboard'); ?></p>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-
-                <h2><?php esc_html_e('Metadatos del usuario (incluye ACF)', 'custom-admin-dashboard'); ?></h2>
-                <p class="description">
-                    <?php esc_html_e('Puedes editar todos los metadatos. Los pares ACF se muestran marcados cuando se detectan claves field_.', 'custom-admin-dashboard'); ?>
-                </p>
-
-                <table class="widefat striped">
-                    <thead>
-                        <tr>
-                            <th style="width: 280px;"><?php esc_html_e('Meta key', 'custom-admin-dashboard'); ?></th>
-                            <th><?php esc_html_e('Valor', 'custom-admin-dashboard'); ?></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php if (empty($meta_keys)) : ?>
-                            <tr>
-                                <td colspan="2"><?php esc_html_e('Este usuario no tiene metadatos.', 'custom-admin-dashboard'); ?></td>
-                            </tr>
-                        <?php else : ?>
-                            <?php foreach ($meta_keys as $meta_index => $meta_key) : ?>
-                                <?php
-                                $display_value = $this->get_displayable_meta_value($all_meta, $meta_key);
-                                $is_acf = $this->is_acf_meta_key($all_meta, $meta_key);
-                                ?>
-                                <tr>
-                                    <td>
-                                        <code><?php echo esc_html($meta_key); ?></code>
-                                        <?php if ($is_acf) : ?>
-                                            <span style="display:inline-block;margin-left:6px;padding:2px 6px;background:#2271b1;color:#fff;border-radius:3px;font-size:11px;">ACF</span>
-                                        <?php endif; ?>
-                                        <input type="hidden" name="meta_keys[<?php echo esc_attr((string) $meta_index); ?>]" value="<?php echo esc_attr($meta_key); ?>" />
-                                    </td>
-                                    <td>
-                                        <textarea class="large-text code" rows="3" name="meta_values[<?php echo esc_attr((string) $meta_index); ?>]"><?php echo esc_textarea($display_value); ?></textarea>
-                                    </td>
-                                </tr>
-                            <?php endforeach; ?>
-                        <?php endif; ?>
+                        <?php foreach ($this->get_profile_fields() as $field) : ?>
+                            <?php $this->render_profile_field_row($user_id, $field); ?>
+                        <?php endforeach; ?>
                     </tbody>
                 </table>
 
                 <h2><?php esc_html_e('Relaciones del usuario', 'custom-admin-dashboard'); ?></h2>
                 <?php $this->render_user_relations($user_id); ?>
 
-                <?php submit_button(__('Guardar usuario', 'custom-admin-dashboard')); ?>
+                <?php submit_button(__('Guardar perfil', 'custom-admin-dashboard')); ?>
             </form>
+        </div>
+        <?php
+
+        $this->render_media_picker_script();
+    }
+
+    /**
+     * @return array
+     */
+    private function get_target_user_types() {
+        return array('cie_user', 'cie_new_user');
+    }
+
+    /**
+     * @return array
+     */
+    private function get_profile_fields() {
+        return array(
+            array(
+                'label'   => 'Foto de perfil',
+                'meta_key' => 'profile_pic',
+                'acf_key' => 'field_683f15de2203c',
+                'type'    => 'image',
+            ),
+            array(
+                'label'   => 'Nombre y Apellidos',
+                'meta_key' => 'name',
+                'acf_key' => 'field_683f14a72202f',
+                'type'    => 'text',
+            ),
+            array(
+                'label'   => 'Fecha de nacimiento',
+                'meta_key' => 'birthdate',
+                'acf_key' => 'field_67f61aae9c8a8',
+                'type'    => 'text',
+            ),
+            array(
+                'label'   => 'Email',
+                'meta_key' => 'email',
+                'acf_key' => 'field_683f14b222030',
+                'type'    => 'email',
+            ),
+            array(
+                'label'   => 'Telefono',
+                'meta_key' => 'phone',
+                'acf_key' => 'field_683f14d622031',
+                'type'    => 'text',
+            ),
+            array(
+                'label'   => 'Universidad de Adscripcion',
+                'meta_key' => 'adscription_university',
+                'acf_key' => 'field_67f61a8d9c8a7',
+                'type'    => 'text',
+            ),
+            array(
+                'label'   => 'Rol en la Universidad',
+                'meta_key' => 'university_role',
+                'acf_key' => 'field_683f152522032',
+                'type'    => 'text',
+            ),
+            array(
+                'label'   => 'Direccion',
+                'meta_key' => 'address',
+                'acf_key' => 'field_683f153922033',
+                'type'    => 'text',
+            ),
+            array(
+                'label'   => 'Direccion de trabajo',
+                'meta_key' => 'job_address',
+                'acf_key' => 'field_683f154122034',
+                'type'    => 'text',
+            ),
+            array(
+                'label'   => 'Proyecto experimental',
+                'meta_key' => 'experimental_project',
+                'acf_key' => 'field_683f155422035',
+                'type'    => 'text',
+            ),
+            array(
+                'label'   => 'Necesidad de uso',
+                'meta_key' => 'use_needs',
+                'acf_key' => 'field_683f156922036',
+                'type'    => 'text',
+            ),
+            array(
+                'label'   => 'Equipos previstos',
+                'meta_key' => 'planned_equipment',
+                'acf_key' => 'field_683f158a22038',
+                'type'    => 'text',
+            ),
+            array(
+                'label'   => 'Periodo de uso',
+                'meta_key' => 'use_period',
+                'acf_key' => 'field_683f157722037',
+                'type'    => 'text',
+            ),
+            array(
+                'label'   => 'User Type',
+                'meta_key' => 'user_type',
+                'acf_key' => 'field_683f15c022039',
+                'type'    => 'text',
+            ),
+            array(
+                'label'   => 'Nombre del Aval',
+                'meta_key' => 'aval_name',
+                'acf_key' => 'field_683f15c92203a',
+                'type'    => 'text',
+            ),
+            array(
+                'label'   => 'Email del Aval',
+                'meta_key' => 'aval_mail',
+                'acf_key' => 'field_683f15d32203b',
+                'type'    => 'email',
+            ),
+            array(
+                'label'   => 'Progreso cursos',
+                'meta_key' => 'courses_progress',
+                'acf_key' => 'field_696816747c641',
+                'type'    => 'textarea',
+            ),
+        );
+    }
+
+    /**
+     * @param WP_User $user
+     *
+     * @return bool
+     */
+    private function user_matches_target_type($user) {
+        if (! $user instanceof WP_User) {
+            return false;
+        }
+
+        $target_types = $this->get_target_user_types();
+        $role_match = ! empty(array_intersect((array) $user->roles, $target_types));
+        if ($role_match) {
+            return true;
+        }
+
+        $meta_type = (string) get_user_meta($user->ID, 'user_type', true);
+        return in_array($meta_type, $target_types, true);
+    }
+
+    /**
+     * @param WP_User $user
+     *
+     * @return string
+     */
+    private function get_user_type_label($user) {
+        if (! $user instanceof WP_User) {
+            return '';
+        }
+
+        $target_types = $this->get_target_user_types();
+        $roles = array_values(array_intersect((array) $user->roles, $target_types));
+        if (! empty($roles)) {
+            return (string) $roles[0];
+        }
+
+        return (string) get_user_meta($user->ID, 'user_type', true);
+    }
+
+    /**
+     * @param string $search
+     *
+     * @return array
+     */
+    private function get_target_users($search = '') {
+        $search = sanitize_text_field((string) $search);
+        $target_types = $this->get_target_user_types();
+        $ids = array();
+
+        $base_args = array(
+            'number' => self::LIST_LIMIT,
+            'fields' => 'ID',
+        );
+
+        if ($search !== '') {
+            $base_args['search'] = '*' . $search . '*';
+            $base_args['search_columns'] = array('user_login', 'user_email', 'display_name');
+        }
+
+        $query_by_role = new WP_User_Query(
+            array_merge(
+                $base_args,
+                array(
+                    'role__in' => $target_types,
+                    'orderby'  => 'ID',
+                    'order'    => 'DESC',
+                )
+            )
+        );
+        if (! empty($query_by_role->results)) {
+            $ids = array_merge($ids, array_map('intval', (array) $query_by_role->results));
+        }
+
+        $query_by_meta = new WP_User_Query(
+            array_merge(
+                $base_args,
+                array(
+                    'meta_query' => array(
+                        array(
+                            'key'     => 'user_type',
+                            'value'   => $target_types,
+                            'compare' => 'IN',
+                        ),
+                    ), // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query
+                    'orderby'    => 'ID',
+                    'order'      => 'DESC',
+                )
+            )
+        );
+        if (! empty($query_by_meta->results)) {
+            $ids = array_merge($ids, array_map('intval', (array) $query_by_meta->results));
+        }
+
+        $ids = array_values(array_unique(array_filter($ids)));
+        if (empty($ids)) {
+            return array();
+        }
+
+        $users_query = new WP_User_Query(
+            array(
+                'include' => $ids,
+                'number'  => self::LIST_LIMIT,
+                'orderby' => 'ID',
+                'order'   => 'DESC',
+            )
+        );
+
+        $users = $users_query->get_results();
+        if (! is_array($users)) {
+            return array();
+        }
+
+        return array_values(
+            array_filter(
+                $users,
+                function ($user) {
+                    return $this->user_matches_target_type($user);
+                }
+            )
+        );
+    }
+
+    /**
+     * @param int   $user_id
+     * @param array $field
+     */
+    private function render_profile_field_row($user_id, $field) {
+        $meta_key = isset($field['meta_key']) ? (string) $field['meta_key'] : '';
+        if ($meta_key === '') {
+            return;
+        }
+
+        $label = isset($field['label']) ? (string) $field['label'] : $meta_key;
+        $acf_key = isset($field['acf_key']) ? (string) $field['acf_key'] : '';
+        $type = isset($field['type']) ? (string) $field['type'] : 'text';
+        $value = get_user_meta($user_id, $meta_key, true);
+        $value = is_scalar($value) ? (string) $value : wp_json_encode($value);
+        ?>
+        <tr>
+            <th scope="row">
+                <label for="cad-field-<?php echo esc_attr($meta_key); ?>">
+                    <?php echo esc_html($label); ?>
+                </label>
+                <p><code><?php echo esc_html($meta_key); ?></code></p>
+                <?php if ($acf_key !== '') : ?>
+                    <p><code><?php echo esc_html($acf_key); ?></code></p>
+                <?php endif; ?>
+            </th>
+            <td>
+                <?php if ($type === 'textarea') : ?>
+                    <textarea
+                        id="cad-field-<?php echo esc_attr($meta_key); ?>"
+                        name="cie_fields[<?php echo esc_attr($meta_key); ?>]"
+                        rows="4"
+                        class="large-text"
+                    ><?php echo esc_textarea($value); ?></textarea>
+                <?php elseif ($type === 'image') : ?>
+                    <?php $this->render_image_field($meta_key, $value); ?>
+                <?php else : ?>
+                    <input
+                        type="<?php echo esc_attr($type === 'email' ? 'email' : 'text'); ?>"
+                        id="cad-field-<?php echo esc_attr($meta_key); ?>"
+                        class="regular-text"
+                        name="cie_fields[<?php echo esc_attr($meta_key); ?>]"
+                        value="<?php echo esc_attr($value); ?>"
+                    />
+                <?php endif; ?>
+            </td>
+        </tr>
+        <?php
+    }
+
+    /**
+     * @param string $meta_key
+     * @param string $value
+     */
+    private function render_image_field($meta_key, $value) {
+        $preview_html = '';
+        if ($value !== '') {
+            if (ctype_digit($value)) {
+                $attachment_id = (int) $value;
+                $img = wp_get_attachment_image($attachment_id, 'thumbnail');
+                if ($img) {
+                    $preview_html = $img;
+                }
+            } elseif (filter_var($value, FILTER_VALIDATE_URL)) {
+                $preview_html = sprintf(
+                    '<img src="%s" alt="" style="max-width:120px;height:auto;" />',
+                    esc_url($value)
+                );
+            }
+        }
+        ?>
+        <input
+            type="text"
+            id="cad-field-<?php echo esc_attr($meta_key); ?>"
+            class="regular-text cad-image-value"
+            name="cie_fields[<?php echo esc_attr($meta_key); ?>]"
+            value="<?php echo esc_attr($value); ?>"
+        />
+        <button
+            type="button"
+            class="button cad-image-upload"
+            data-target="#cad-field-<?php echo esc_attr($meta_key); ?>"
+            data-preview="#cad-image-preview-<?php echo esc_attr($meta_key); ?>"
+        >
+            <?php esc_html_e('Seleccionar imagen', 'custom-admin-dashboard'); ?>
+        </button>
+        <button
+            type="button"
+            class="button cad-image-clear"
+            data-target="#cad-field-<?php echo esc_attr($meta_key); ?>"
+            data-preview="#cad-image-preview-<?php echo esc_attr($meta_key); ?>"
+        >
+            <?php esc_html_e('Quitar', 'custom-admin-dashboard'); ?>
+        </button>
+        <div id="cad-image-preview-<?php echo esc_attr($meta_key); ?>" style="margin-top:10px;">
+            <?php echo $preview_html ? wp_kses_post($preview_html) : ''; ?>
         </div>
         <?php
     }
 
     /**
-     * Save core WP user fields.
+     * Save configured custom fields for selected user.
      *
      * @param int $user_id
      */
-    private function save_user_basic_data($user_id) {
-        $current_user = get_userdata($user_id);
-        if (! $current_user instanceof WP_User) {
-            return;
-        }
+    private function save_profile_fields($user_id) {
+        $fields_input = isset($_POST['cie_fields']) ? (array) wp_unslash($_POST['cie_fields']) : array();
 
-        $raw_email = isset($_POST['user_email']) ? (string) wp_unslash($_POST['user_email']) : '';
-        $email = sanitize_email($raw_email);
-        if (trim($raw_email) !== '' && $email === '') {
-            wp_die(esc_html__('El email introducido no es valido.', 'custom-admin-dashboard'));
-        }
-
-        if ($email === '') {
-            $email = (string) $current_user->user_email;
-        }
-
-        $userdata = array(
-            'ID'           => (int) $user_id,
-            'user_email'   => $email,
-            'first_name'   => isset($_POST['first_name']) ? sanitize_text_field(wp_unslash($_POST['first_name'])) : '',
-            'last_name'    => isset($_POST['last_name']) ? sanitize_text_field(wp_unslash($_POST['last_name'])) : '',
-            'nickname'     => isset($_POST['nickname']) ? sanitize_text_field(wp_unslash($_POST['nickname'])) : '',
-            'display_name' => isset($_POST['display_name']) && trim((string) wp_unslash($_POST['display_name'])) !== ''
-                ? sanitize_text_field(wp_unslash($_POST['display_name']))
-                : (string) $current_user->display_name,
-            'user_url'     => isset($_POST['user_url']) ? esc_url_raw(wp_unslash($_POST['user_url'])) : '',
-            'description'  => isset($_POST['description']) ? sanitize_textarea_field(wp_unslash($_POST['description'])) : '',
-        );
-
-        if (isset($_POST['user_pass']) && trim((string) wp_unslash($_POST['user_pass'])) !== '') {
-            $userdata['user_pass'] = (string) wp_unslash($_POST['user_pass']);
-        }
-
-        $result = wp_update_user($userdata);
-        if (is_wp_error($result)) {
-            wp_die(esc_html($result->get_error_message()));
-        }
-    }
-
-    /**
-     * Save primary role when allowed.
-     *
-     * @param int $user_id
-     */
-    private function save_user_role($user_id) {
-        if (! current_user_can('promote_users')) {
-            return;
-        }
-
-        $new_role = isset($_POST['primary_role']) ? sanitize_key(wp_unslash($_POST['primary_role'])) : '';
-        if ($new_role === '') {
-            return;
-        }
-
-        $wp_roles = wp_roles();
-        if (! $wp_roles instanceof WP_Roles || ! $wp_roles->is_role($new_role)) {
-            return;
-        }
-
-        $user = get_userdata($user_id);
-        if (! $user instanceof WP_User) {
-            return;
-        }
-
-        $user->set_role($new_role);
-    }
-
-    /**
-     * Save meta values from the form.
-     *
-     * @param int $user_id
-     */
-    private function save_user_meta_values($user_id) {
-        $meta_keys = isset($_POST['meta_keys']) ? (array) wp_unslash($_POST['meta_keys']) : array();
-        $meta_values = isset($_POST['meta_values']) ? (array) wp_unslash($_POST['meta_values']) : array();
-
-        foreach ($meta_keys as $meta_index => $raw_key) {
-            $meta_key = $this->sanitize_meta_key($raw_key);
+        foreach ($this->get_profile_fields() as $field) {
+            $meta_key = isset($field['meta_key']) ? (string) $field['meta_key'] : '';
             if ($meta_key === '') {
                 continue;
             }
 
-            $meta_index = (string) $meta_index;
-            $raw_value = isset($meta_values[$meta_index]) ? $meta_values[$meta_index] : '';
+            $raw_value = isset($fields_input[$meta_key]) ? $fields_input[$meta_key] : '';
             if (is_array($raw_value)) {
                 continue;
             }
 
-            $value = $this->parse_meta_input((string) $raw_value);
+            $value = $this->sanitize_field_value($field, (string) $raw_value);
             if ($value === '') {
                 delete_user_meta($user_id, $meta_key);
-                continue;
+            } else {
+                update_user_meta($user_id, $meta_key, $value);
             }
 
-            update_user_meta($user_id, $meta_key, $value);
+            $acf_key = isset($field['acf_key']) ? (string) $field['acf_key'] : '';
+            if ($acf_key !== '') {
+                if ($value === '') {
+                    delete_user_meta($user_id, '_' . $meta_key);
+                } else {
+                    update_user_meta($user_id, '_' . $meta_key, $acf_key);
+                }
+            }
+
+            if ($meta_key === 'email' && $value !== '') {
+                $this->sync_wp_user_email($user_id, $value);
+            }
         }
     }
 
     /**
-     * @param string $raw_value
-     *
-     * @return mixed
-     */
-    private function parse_meta_input($raw_value) {
-        $raw_value = trim((string) $raw_value);
-        if ($raw_value === '') {
-            return '';
-        }
-
-        $first_char = substr($raw_value, 0, 1);
-        if ($first_char === '{' || $first_char === '[') {
-            $decoded = json_decode($raw_value, true);
-            if (json_last_error() === JSON_ERROR_NONE) {
-                return $decoded;
-            }
-        }
-
-        return $raw_value;
-    }
-
-    /**
-     * @param array  $all_meta
-     * @param string $meta_key
+     * @param array  $field
+     * @param string $value
      *
      * @return string
      */
-    private function get_displayable_meta_value($all_meta, $meta_key) {
-        if (! isset($all_meta[$meta_key])) {
+    private function sanitize_field_value($field, $value) {
+        $type  = isset($field['type']) ? (string) $field['type'] : 'text';
+        $value = trim((string) $value);
+
+        if ($value === '') {
             return '';
         }
 
-        $values = is_array($all_meta[$meta_key]) ? $all_meta[$meta_key] : array($all_meta[$meta_key]);
-        $value = count($values) > 1 ? $values : reset($values);
-
-        if (is_array($value)) {
-            return wp_json_encode($value, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+        if ($type === 'textarea') {
+            return sanitize_textarea_field($value);
         }
 
-        if (is_bool($value)) {
-            return $value ? 'true' : 'false';
+        if ($type === 'email') {
+            $email = sanitize_email($value);
+            if ($email === '') {
+                wp_die(esc_html__('Uno de los emails introducidos no es valido.', 'custom-admin-dashboard'));
+            }
+            return $email;
         }
 
-        if (is_object($value)) {
-            return wp_json_encode($value, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+        if ($type === 'image') {
+            if (ctype_digit($value)) {
+                return (string) absint($value);
+            }
+            return esc_url_raw($value);
         }
 
-        return (string) $value;
+        return sanitize_text_field($value);
     }
 
     /**
-     * @param array  $all_meta
-     * @param string $meta_key
-     *
-     * @return bool
+     * @param int    $user_id
+     * @param string $email
      */
-    private function is_acf_meta_key($all_meta, $meta_key) {
-        $meta_key = (string) $meta_key;
-        if ($meta_key === '') {
-            return false;
+    private function sync_wp_user_email($user_id, $email) {
+        $email = sanitize_email($email);
+        if ($email === '') {
+            return;
         }
 
-        if (strpos($meta_key, '_') === 0) {
-            $raw_values = isset($all_meta[$meta_key]) ? (array) $all_meta[$meta_key] : array();
-            $first = isset($raw_values[0]) ? (string) $raw_values[0] : '';
-            return strpos($first, 'field_') === 0;
-        }
+        $result = wp_update_user(
+            array(
+                'ID'         => (int) $user_id,
+                'user_email' => $email,
+            )
+        );
 
-        $reference_key = '_' . $meta_key;
-        if (! isset($all_meta[$reference_key])) {
-            return false;
+        if (is_wp_error($result)) {
+            wp_die(esc_html($result->get_error_message()));
         }
-
-        $raw_values = (array) $all_meta[$reference_key];
-        $first = isset($raw_values[0]) ? (string) $raw_values[0] : '';
-        return strpos($first, 'field_') === 0;
     }
 
     /**
@@ -723,20 +873,6 @@ class CAD_User_Manager {
     }
 
     /**
-     * @return array
-     */
-    private function get_relation_settings() {
-        if ($this->access_control instanceof CAD_Access_Control) {
-            return $this->access_control->get_relation_settings();
-        }
-
-        $defaults = CAD_Access_Control::get_default_settings();
-        return CAD_Access_Control::sanitize_relation_settings(
-            isset($defaults['relations']) ? $defaults['relations'] : array()
-        );
-    }
-
-    /**
      * @param array $posts
      */
     private function render_related_posts_table($posts) {
@@ -784,17 +920,82 @@ class CAD_User_Manager {
     }
 
     /**
-     * @param string $meta_key
-     *
-     * @return string
+     * @return array
      */
-    private function sanitize_meta_key($meta_key) {
-        $meta_key = sanitize_text_field((string) $meta_key);
-        return trim($meta_key);
+    private function get_relation_settings() {
+        if ($this->access_control instanceof CAD_Access_Control) {
+            return $this->access_control->get_relation_settings();
+        }
+
+        $defaults = CAD_Access_Control::get_default_settings();
+        return CAD_Access_Control::sanitize_relation_settings(
+            isset($defaults['relations']) ? $defaults['relations'] : array()
+        );
     }
 
     /**
-     * Render notices for user save.
+     * Print media picker inline script.
+     */
+    private function render_media_picker_script() {
+        ?>
+        <script>
+        (function($){
+            if (typeof wp === 'undefined' || typeof wp.media === 'undefined') {
+                return;
+            }
+
+            function setPreview(previewSelector, url) {
+                var $preview = $(previewSelector);
+                if (!$preview.length) {
+                    return;
+                }
+                if (!url) {
+                    $preview.html('');
+                    return;
+                }
+                $preview.html('<img src="' + url + '" alt="" style="max-width:120px;height:auto;" />');
+            }
+
+            $(document).on('click', '.cad-image-upload', function(e){
+                e.preventDefault();
+                var $button = $(this);
+                var target = $button.data('target');
+                var preview = $button.data('preview');
+                var frame = wp.media({
+                    title: 'Seleccionar imagen',
+                    library: { type: 'image' },
+                    button: { text: 'Usar imagen' },
+                    multiple: false
+                });
+
+                frame.on('select', function(){
+                    var attachment = frame.state().get('selection').first().toJSON();
+                    var value = attachment.id ? String(attachment.id) : (attachment.url || '');
+                    $(target).val(value);
+                    var previewUrl = (attachment.sizes && attachment.sizes.thumbnail)
+                        ? attachment.sizes.thumbnail.url
+                        : (attachment.url || '');
+                    setPreview(preview, previewUrl);
+                });
+
+                frame.open();
+            });
+
+            $(document).on('click', '.cad-image-clear', function(e){
+                e.preventDefault();
+                var $button = $(this);
+                var target = $button.data('target');
+                var preview = $button.data('preview');
+                $(target).val('');
+                setPreview(preview, '');
+            });
+        })(jQuery);
+        </script>
+        <?php
+    }
+
+    /**
+     * Render save notice.
      */
     private function render_notice() {
         if (! isset($_GET['cad_user_notice'])) {
