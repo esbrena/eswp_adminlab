@@ -38,12 +38,14 @@ class CAD_User_Manager {
             return;
         }
 
-        add_management_page(
-            __('Gestion de usuarios CAD', 'custom-admin-dashboard'),
-            __('Gestion usuarios CAD', 'custom-admin-dashboard'),
+        add_menu_page(
+            __('CIE - Usuarios', 'custom-admin-dashboard'),
+            __('CIE - Usuarios', 'custom-admin-dashboard'),
             'list_users',
             'cad-user-management',
-            array($this, 'render_user_management_page')
+            array($this, 'render_user_management_page'),
+            'dashicons-groups',
+            3
         );
     }
 
@@ -101,7 +103,7 @@ class CAD_User_Manager {
                     'user_id'         => $user_id,
                     'cad_user_notice' => 'saved',
                 ),
-                admin_url('tools.php')
+                admin_url('admin.php')
             )
         );
         exit;
@@ -134,12 +136,12 @@ class CAD_User_Manager {
         $users  = $this->get_target_users($search);
         ?>
         <div class="wrap">
-            <h1><?php esc_html_e('Gestion usuarios CAD', 'custom-admin-dashboard'); ?></h1>
+            <h1><?php esc_html_e('CIE - Usuarios', 'custom-admin-dashboard'); ?></h1>
             <p class="description">
                 <?php esc_html_e('Solo se muestran usuarios tipo cie_user y cie_new_user.', 'custom-admin-dashboard'); ?>
             </p>
 
-            <form method="get" action="<?php echo esc_url(admin_url('tools.php')); ?>">
+            <form method="get" action="<?php echo esc_url(admin_url('admin.php')); ?>">
                 <input type="hidden" name="page" value="cad-user-management" />
                 <p class="search-box">
                     <label class="screen-reader-text" for="cad-user-search"><?php esc_html_e('Buscar usuarios', 'custom-admin-dashboard'); ?></label>
@@ -181,7 +183,7 @@ class CAD_User_Manager {
                                     'action'  => 'edit',
                                     'user_id' => (int) $user->ID,
                                 ),
-                                admin_url('tools.php')
+                                admin_url('admin.php')
                             );
                             ?>
                             <tr>
@@ -241,12 +243,12 @@ class CAD_User_Manager {
             <?php $this->render_notice(); ?>
 
             <p>
-                <a href="<?php echo esc_url(add_query_arg(array('page' => 'cad-user-management'), admin_url('tools.php'))); ?>">
+                <a href="<?php echo esc_url(add_query_arg(array('page' => 'cad-user-management'), admin_url('admin.php'))); ?>">
                     &larr; <?php esc_html_e('Volver al listado', 'custom-admin-dashboard'); ?>
                 </a>
             </p>
 
-            <form method="post" action="<?php echo esc_url(add_query_arg(array('page' => 'cad-user-management'), admin_url('tools.php'))); ?>">
+            <form method="post" action="<?php echo esc_url(add_query_arg(array('page' => 'cad-user-management'), admin_url('admin.php'))); ?>">
                 <?php wp_nonce_field('cad_save_cie_user'); ?>
                 <input type="hidden" name="cad_action" value="save_cie_user" />
                 <input type="hidden" name="user_id" value="<?php echo esc_attr((string) $user_id); ?>" />
@@ -520,7 +522,6 @@ class CAD_User_Manager {
         }
 
         $label = isset($field['label']) ? (string) $field['label'] : $meta_key;
-        $acf_key = isset($field['acf_key']) ? (string) $field['acf_key'] : '';
         $type = isset($field['type']) ? (string) $field['type'] : 'text';
         $value = get_user_meta($user_id, $meta_key, true);
         $value = is_scalar($value) ? (string) $value : wp_json_encode($value);
@@ -530,10 +531,6 @@ class CAD_User_Manager {
                 <label for="cad-field-<?php echo esc_attr($meta_key); ?>">
                     <?php echo esc_html($label); ?>
                 </label>
-                <p><code><?php echo esc_html($meta_key); ?></code></p>
-                <?php if ($acf_key !== '') : ?>
-                    <p><code><?php echo esc_html($acf_key); ?></code></p>
-                <?php endif; ?>
             </th>
             <td>
                 <?php if ($type === 'textarea') : ?>

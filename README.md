@@ -24,7 +24,7 @@ Plugin para dos funciones principales en `wp-admin`:
 2. Ve a **Ajustes > CSS por rol** para:
    - configurar estilos por rol,
    - configurar post types y meta keys de relaciones de usuario.
-3. Ve a **Herramientas > Gestion usuarios CAD** para editar esos perfiles y sus relaciones.
+3. Ve al menu principal **CIE - Usuarios** para editar esos perfiles y sus relaciones.
 
 ## Notas
 
