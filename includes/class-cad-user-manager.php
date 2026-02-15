@@ -28,6 +28,29 @@ class CAD_User_Manager {
 
         add_action('admin_menu', array($this, 'register_user_management_page'));
         add_action('admin_init', array($this, 'handle_admin_requests'));
+        add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_assets'));
+    }
+
+    /**
+     * Enqueue media library only on CIE user edit page.
+     *
+     * @param string $hook_suffix
+     */
+    public function enqueue_admin_assets($hook_suffix) {
+        if ($hook_suffix !== 'toplevel_page_cad-user-management') {
+            return;
+        }
+
+        $action = isset($_GET['action']) ? sanitize_key(wp_unslash($_GET['action'])) : '';
+        if ($action !== 'edit') {
+            return;
+        }
+
+        if (function_exists('wp_enqueue_media')) {
+            wp_enqueue_media();
+        }
+
+        wp_enqueue_script('jquery');
     }
 
     /**
@@ -225,9 +248,9 @@ class CAD_User_Manager {
             wp_die(esc_html__('No tienes permisos para editar este usuario.', 'custom-admin-dashboard'));
         }
 
-        if (function_exists('wp_enqueue_media')) {
-            wp_enqueue_media();
-        }
+        $user_type_label = $this->get_user_type_label($user);
+        $user_type_value = $this->get_user_type_value($user);
+        $visible_fields  = $this->get_visible_profile_fields($user_type_value);
 
         ?>
         <div class="wrap">
@@ -248,6 +271,13 @@ class CAD_User_Manager {
                 </a>
             </p>
 
+            <div style="margin: 12px 0 18px 0;">
+                <strong><?php esc_html_e('User Type:', 'custom-admin-dashboard'); ?></strong>
+                <span style="display:inline-block;margin-left:8px;padding:4px 10px;background:#2271b1;color:#fff;border-radius:999px;font-size:12px;line-height:1.5;">
+                    <?php echo esc_html($user_type_label !== '' ? $user_type_label : __('No definido', 'custom-admin-dashboard')); ?>
+                </span>
+            </div>
+
             <form method="post" action="<?php echo esc_url(add_query_arg(array('page' => 'cad-user-management'), admin_url('admin.php'))); ?>">
                 <?php wp_nonce_field('cad_save_cie_user'); ?>
                 <input type="hidden" name="cad_action" value="save_cie_user" />
@@ -255,7 +285,7 @@ class CAD_User_Manager {
 
                 <table class="form-table" role="presentation">
                     <tbody>
-                        <?php foreach ($this->get_profile_fields() as $field) : ?>
+                        <?php foreach ($visible_fields as $field) : ?>
                             <?php $this->render_profile_field_row($user_id, $field); ?>
                         <?php endforeach; ?>
                     </tbody>
@@ -300,7 +330,7 @@ class CAD_User_Manager {
                 'label'   => 'Fecha de nacimiento',
                 'meta_key' => 'birthdate',
                 'acf_key' => 'field_67f61aae9c8a8',
-                'type'    => 'text',
+                'type'    => 'date',
             ),
             array(
                 'label'   => 'Email',
@@ -360,13 +390,7 @@ class CAD_User_Manager {
                 'label'   => 'Periodo de uso',
                 'meta_key' => 'use_period',
                 'acf_key' => 'field_683f157722037',
-                'type'    => 'text',
-            ),
-            array(
-                'label'   => 'User Type',
-                'meta_key' => 'user_type',
-                'acf_key' => 'field_683f15c022039',
-                'type'    => 'text',
+                'type'    => 'date',
             ),
             array(
                 'label'   => 'Nombre del Aval',
@@ -380,12 +404,30 @@ class CAD_User_Manager {
                 'acf_key' => 'field_683f15d32203b',
                 'type'    => 'email',
             ),
-            array(
-                'label'   => 'Progreso cursos',
-                'meta_key' => 'courses_progress',
-                'acf_key' => 'field_696816747c641',
-                'type'    => 'textarea',
-            ),
+        );
+    }
+
+    /**
+     * @param string $user_type_value
+     *
+     * @return array
+     */
+    private function get_visible_profile_fields($user_type_value) {
+        $fields = $this->get_profile_fields();
+        if (! $this->is_internal_user_type($user_type_value)) {
+            return $fields;
+        }
+
+        $hidden_for_internal = array('aval_name', 'aval_mail');
+
+        return array_values(
+            array_filter(
+                $fields,
+                static function ($field) use ($hidden_for_internal) {
+                    $meta_key = isset($field['meta_key']) ? (string) $field['meta_key'] : '';
+                    return ! in_array($meta_key, $hidden_for_internal, true);
+                }
+            )
         );
     }
 
@@ -419,13 +461,58 @@ class CAD_User_Manager {
             return '';
         }
 
+        $meta_type = (string) get_user_meta($user->ID, 'user_type', true);
+        if ($meta_type !== '') {
+            return $meta_type;
+        }
+
         $target_types = $this->get_target_user_types();
         $roles = array_values(array_intersect((array) $user->roles, $target_types));
         if (! empty($roles)) {
             return (string) $roles[0];
         }
 
-        return (string) get_user_meta($user->ID, 'user_type', true);
+        return '';
+    }
+
+    /**
+     * @param WP_User|int $user
+     *
+     * @return string
+     */
+    private function get_user_type_value($user) {
+        $user_id = 0;
+        if ($user instanceof WP_User) {
+            $user_id = (int) $user->ID;
+        } else {
+            $user_id = (int) $user;
+        }
+
+        if ($user_id <= 0) {
+            return '';
+        }
+
+        $meta_type = (string) get_user_meta($user_id, 'user_type', true);
+        if ($meta_type !== '') {
+            return strtolower(trim($meta_type));
+        }
+
+        $user_obj = get_userdata($user_id);
+        if ($user_obj instanceof WP_User) {
+            return strtolower(trim($this->get_user_type_label($user_obj)));
+        }
+
+        return '';
+    }
+
+    /**
+     * @param string $user_type_value
+     *
+     * @return bool
+     */
+    private function is_internal_user_type($user_type_value) {
+        $user_type_value = strtolower(trim((string) $user_type_value));
+        return in_array($user_type_value, array('interno', 'interna', 'internal'), true);
     }
 
     /**
@@ -525,6 +612,10 @@ class CAD_User_Manager {
         $type = isset($field['type']) ? (string) $field['type'] : 'text';
         $value = get_user_meta($user_id, $meta_key, true);
         $value = is_scalar($value) ? (string) $value : wp_json_encode($value);
+
+        if ($type === 'date') {
+            $value = $this->normalize_date_input_value($value);
+        }
         ?>
         <tr>
             <th scope="row">
@@ -544,7 +635,7 @@ class CAD_User_Manager {
                     <?php $this->render_image_field($meta_key, $value); ?>
                 <?php else : ?>
                     <input
-                        type="<?php echo esc_attr($type === 'email' ? 'email' : 'text'); ?>"
+                        type="<?php echo esc_attr($type === 'email' ? 'email' : ($type === 'date' ? 'date' : 'text')); ?>"
                         id="cad-field-<?php echo esc_attr($meta_key); ?>"
                         class="regular-text"
                         name="cie_fields[<?php echo esc_attr($meta_key); ?>]"
@@ -613,8 +704,9 @@ class CAD_User_Manager {
      */
     private function save_profile_fields($user_id) {
         $fields_input = isset($_POST['cie_fields']) ? (array) wp_unslash($_POST['cie_fields']) : array();
+        $user_type_value = $this->get_user_type_value($user_id);
 
-        foreach ($this->get_profile_fields() as $field) {
+        foreach ($this->get_visible_profile_fields($user_type_value) as $field) {
             $meta_key = isset($field['meta_key']) ? (string) $field['meta_key'] : '';
             if ($meta_key === '') {
                 continue;
@@ -671,6 +763,10 @@ class CAD_User_Manager {
                 wp_die(esc_html__('Uno de los emails introducidos no es valido.', 'custom-admin-dashboard'));
             }
             return $email;
+        }
+
+        if ($type === 'date') {
+            return $this->normalize_date_input_value($value);
         }
 
         if ($type === 'image') {
@@ -958,6 +1054,9 @@ class CAD_User_Manager {
                 var $button = $(this);
                 var target = $button.data('target');
                 var preview = $button.data('preview');
+                if (!target) {
+                    return;
+                }
                 var frame = wp.media({
                     title: 'Seleccionar imagen',
                     library: { type: 'image' },
@@ -983,12 +1082,40 @@ class CAD_User_Manager {
                 var $button = $(this);
                 var target = $button.data('target');
                 var preview = $button.data('preview');
+                if (!target) {
+                    return;
+                }
                 $(target).val('');
                 setPreview(preview, '');
             });
         })(jQuery);
         </script>
         <?php
+    }
+
+    /**
+     * Normalize date values to HTML date format.
+     *
+     * @param string $value
+     *
+     * @return string
+     */
+    private function normalize_date_input_value($value) {
+        $value = trim((string) $value);
+        if ($value === '') {
+            return '';
+        }
+
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) {
+            return $value;
+        }
+
+        $timestamp = strtotime($value);
+        if ($timestamp === false) {
+            return '';
+        }
+
+        return gmdate('Y-m-d', $timestamp);
     }
 
     /**

@@ -12,7 +12,9 @@ Plugin para dos funciones principales en `wp-admin`:
 - Si un usuario tiene varios roles, combina el CSS de todos esos roles.
 - Nueva pantalla de gestion de usuarios con:
   - listado y edicion visual de usuarios tipo `cie_user` y `cie_new_user`,
-  - formulario cerrado a campos ACF definidos (profile_pic, name, birthdate, email, phone, adscription_university, university_role, address, job_address, experimental_project, use_needs, planned_equipment, use_period, user_type, aval_name, aval_mail, courses_progress),
+  - formulario cerrado a campos ACF definidos (profile_pic, name, birthdate, email, phone, adscription_university, university_role, address, job_address, experimental_project, use_needs, planned_equipment, use_period, aval_name, aval_mail),
+  - `User Type` mostrado como tag informativo (no editable),
+  - oculta `Nombre del Aval` y `Email del Aval` cuando el user type es interno,
   - paneles de relaciones detectadas: cursos, lecciones, examenes y reservas.
 - Ajustes configurables para relaciones:
   - post types de cursos/lecciones/examenes/reservas,
