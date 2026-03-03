@@ -957,6 +957,45 @@ class CAD_User_Manager {
                 setPreview(preview, '');
             });
 
+            function extractRangeParts(value) {
+                var raw = String(value || '').trim();
+                if (!raw) {
+                    return null;
+                }
+
+                var parts = null;
+                var separators = [' — ', ' – ', ' to ', ' al ', ' - '];
+
+                for (var i = 0; i < separators.length; i++) {
+                    var delimiter = separators[i];
+                    if (raw.indexOf(delimiter) === -1) {
+                        continue;
+                    }
+
+                    var splitParts = raw.split(delimiter);
+                    if (splitParts.length >= 2) {
+                        parts = [
+                            String(splitParts[0] || '').trim(),
+                            String(splitParts.slice(1).join(delimiter) || '').trim()
+                        ];
+                        break;
+                    }
+                }
+
+                if (!parts) {
+                    var regexMatch = raw.match(/^(.+?)\s*(?:—|–|-)\s*(.+)$/);
+                    if (regexMatch && regexMatch.length === 3) {
+                        parts = [String(regexMatch[1]).trim(), String(regexMatch[2]).trim()];
+                    }
+                }
+
+                if (!parts || !parts[0] || !parts[1]) {
+                    return null;
+                }
+
+                return parts;
+            }
+
             if (typeof flatpickr !== 'undefined') {
                 $('.cad-flatpickr-date').each(function(){
                     if (this._flatpickr) {
@@ -974,12 +1013,27 @@ class CAD_User_Manager {
                         return;
                     }
 
-                    flatpickr(this, {
+                    var defaultDates = null;
+                    var parts = extractRangeParts(this.value);
+                    if (parts) {
+                        this.value = parts[0] + ' — ' + parts[1];
+                        defaultDates = [parts[0], parts[1]];
+                    }
+
+                    var config = {
                         mode: 'range',
                         dateFormat: 'd/m/Y',
-                        conjunction: ' — ',
+                        locale: {
+                            rangeSeparator: ' — '
+                        },
                         allowInput: true
-                    });
+                    };
+
+                    if (defaultDates) {
+                        config.defaultDate = defaultDates;
+                    }
+
+                    flatpickr(this, config);
                 });
             }
         })(jQuery);
@@ -1091,7 +1145,7 @@ class CAD_User_Manager {
             }
         }
 
-        if (preg_match('/^(.+?)\s*[—–]\s*(.+)$/u', $value, $matches)) {
+        if (preg_match('/^(.+?)\s*[—–-]\s*(.+)$/u', $value, $matches)) {
             $start = trim((string) $matches[1]);
             $end = trim((string) $matches[2]);
             if ($start !== '' && $end !== '') {
