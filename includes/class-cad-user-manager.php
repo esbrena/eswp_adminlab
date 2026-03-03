@@ -729,7 +729,10 @@ class CAD_User_Manager {
      * @param string $value
      */
     private function render_image_field($meta_key, $value) {
-        $image_url = $this->normalize_image_value($value);
+        $raw_value = trim((string) $value);
+        $attachment_id = $this->normalize_image_attachment_id($raw_value);
+        $image_url = $this->get_image_preview_url($raw_value);
+        $field_value = $attachment_id !== '' ? $attachment_id : $raw_value;
         $preview_html = '';
 
         if ($image_url !== '') {
@@ -744,7 +747,7 @@ class CAD_User_Manager {
             id="cad-field-<?php echo esc_attr($meta_key); ?>"
             class="regular-text cad-image-value"
             name="cie_fields[<?php echo esc_attr($meta_key); ?>]"
-            value="<?php echo esc_attr($image_url); ?>"
+            value="<?php echo esc_attr($field_value); ?>"
         />
         <button
             type="button"
@@ -765,6 +768,7 @@ class CAD_User_Manager {
         <div id="cad-image-preview-<?php echo esc_attr($meta_key); ?>" style="margin-top:10px;">
             <?php echo $preview_html ? wp_kses_post($preview_html) : ''; ?>
         </div>
+        <p class="description"><?php esc_html_e('Este campo guarda el ID de la imagen en ACF (profile_pic).', 'custom-admin-dashboard'); ?></p>
         <?php
     }
 
@@ -807,6 +811,10 @@ class CAD_User_Manager {
 
             if ($meta_key === 'email' && $value !== '') {
                 $this->sync_wp_user_email($user_id, $value);
+            }
+
+            if ($meta_key === 'profile_pic') {
+                $this->sync_wp_user_profile_picture($user_id, $value);
             }
         }
 
@@ -853,7 +861,7 @@ class CAD_User_Manager {
         }
 
         if ($type === 'image') {
-            return $this->normalize_image_value($value);
+            return $this->sanitize_image_field_value($value);
         }
 
         return sanitize_text_field($value);
@@ -878,6 +886,35 @@ class CAD_User_Manager {
 
         if (is_wp_error($result)) {
             wp_die(esc_html($result->get_error_message()));
+        }
+    }
+
+    /**
+     * Sync custom profile picture with common WordPress avatar meta keys.
+     *
+     * @param int    $user_id
+     * @param string $value
+     */
+    private function sync_wp_user_profile_picture($user_id, $value) {
+        $user_id = (int) $user_id;
+        if ($user_id <= 0) {
+            return;
+        }
+
+        $attachment_id = absint($this->normalize_image_attachment_id($value));
+        $avatar_meta_keys = array(
+            'wp_user_avatar',
+            'wp_user_avatar_id',
+            'profile_picture',
+        );
+
+        foreach ($avatar_meta_keys as $meta_key) {
+            if ($attachment_id > 0) {
+                update_user_meta($user_id, $meta_key, $attachment_id);
+                continue;
+            }
+
+            delete_user_meta($user_id, $meta_key);
         }
     }
 
@@ -930,6 +967,7 @@ class CAD_User_Manager {
 
                     var attachment = selection.first().toJSON();
                     var imageUrl = attachment.url || '';
+                    var attachmentId = attachment.id ? String(attachment.id) : '';
                     if (!imageUrl && attachment.sizes && attachment.sizes.full) {
                         imageUrl = attachment.sizes.full.url || '';
                     }
@@ -937,7 +975,7 @@ class CAD_User_Manager {
                         imageUrl = attachment.sizes.thumbnail.url || '';
                     }
 
-                    $(target).val(imageUrl);
+                    $(target).val(attachmentId);
                     setPreview(preview, imageUrl);
                 });
 
@@ -1243,22 +1281,90 @@ class CAD_User_Manager {
      *
      * @return string
      */
-    private function normalize_image_value($value) {
+    private function sanitize_image_field_value($value) {
+        $value = trim((string) $value);
+        if ($value === '') {
+            return '';
+        }
+
+        $attachment_id = $this->normalize_image_attachment_id($value);
+        if ($attachment_id !== '') {
+            return $attachment_id;
+        }
+
+        // Keep compatibility with legacy URL values if the ID cannot be resolved.
+        $url = esc_url_raw($value);
+        if ($url !== '') {
+            return $url;
+        }
+
+        return '';
+    }
+
+    /**
+     * @param string $value
+     *
+     * @return string
+     */
+    private function normalize_image_attachment_id($value) {
         $value = trim((string) $value);
         if ($value === '') {
             return '';
         }
 
         if (ctype_digit($value)) {
-            $attachment_id = (int) $value;
-            $url = wp_get_attachment_image_url($attachment_id, 'full');
-            if (! is_string($url) || $url === '') {
-                $url = wp_get_attachment_url($attachment_id);
+            $attachment_id = absint($value);
+            if ($attachment_id <= 0 || get_post_type($attachment_id) !== 'attachment') {
+                return '';
             }
-            return is_string($url) ? esc_url_raw($url) : '';
+
+            $mime_type = get_post_mime_type($attachment_id);
+            if (! is_string($mime_type) || strpos($mime_type, 'image/') !== 0) {
+                return '';
+            }
+
+            return (string) $attachment_id;
         }
 
-        return esc_url_raw($value);
+        $url = esc_url_raw($value);
+        if ($url === '' || ! function_exists('attachment_url_to_postid')) {
+            return '';
+        }
+
+        $attachment_id = absint(attachment_url_to_postid($url));
+        if ($attachment_id <= 0 || get_post_type($attachment_id) !== 'attachment') {
+            return '';
+        }
+
+        $mime_type = get_post_mime_type($attachment_id);
+        if (! is_string($mime_type) || strpos($mime_type, 'image/') !== 0) {
+            return '';
+        }
+
+        return (string) $attachment_id;
+    }
+
+    /**
+     * @param string $value
+     *
+     * @return string
+     */
+    private function get_image_preview_url($value) {
+        $attachment_id = $this->normalize_image_attachment_id($value);
+        if ($attachment_id !== '') {
+            $url = wp_get_attachment_image_url((int) $attachment_id, 'thumbnail');
+            if (! is_string($url) || $url === '') {
+                $url = wp_get_attachment_url((int) $attachment_id);
+            }
+
+            return is_string($url) ? esc_url($url) : '';
+        }
+
+        if (filter_var($value, FILTER_VALIDATE_URL)) {
+            return esc_url($value);
+        }
+
+        return '';
     }
 
     /**
