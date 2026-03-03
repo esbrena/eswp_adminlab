@@ -11,9 +11,9 @@ class CAD_User_Manager {
     const LIST_LIMIT = 200;
 
     /**
-     * @var int
+     * @var string
      */
-    const RELATION_LIMIT = 50;
+    const USE_PERIOD_SEPARATOR = ' — ';
 
     /**
      * @var CAD_Access_Control
@@ -32,12 +32,13 @@ class CAD_User_Manager {
     }
 
     /**
-     * Enqueue media library only on CIE user edit page.
+     * Enqueue scripts/styles only for CIE user edit page.
      *
      * @param string $hook_suffix
      */
     public function enqueue_admin_assets($hook_suffix) {
-        if ($hook_suffix !== 'toplevel_page_cad-user-management') {
+        $page = isset($_GET['page']) ? sanitize_key(wp_unslash($_GET['page'])) : '';
+        if ($page !== 'cad-user-management') {
             return;
         }
 
@@ -51,6 +52,19 @@ class CAD_User_Manager {
         }
 
         wp_enqueue_script('jquery');
+        wp_enqueue_style(
+            'cad-flatpickr-style',
+            'https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.css',
+            array(),
+            '4.6.13'
+        );
+        wp_enqueue_script(
+            'cad-flatpickr-script',
+            'https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js',
+            array(),
+            '4.6.13',
+            false
+        );
     }
 
     /**
@@ -180,13 +194,14 @@ class CAD_User_Manager {
                         <th><?php esc_html_e('Tipo', 'custom-admin-dashboard'); ?></th>
                         <th><?php esc_html_e('Nombre', 'custom-admin-dashboard'); ?></th>
                         <th><?php esc_html_e('Email', 'custom-admin-dashboard'); ?></th>
+                        <th><?php esc_html_e('Periodo de uso', 'custom-admin-dashboard'); ?></th>
                         <th><?php esc_html_e('Acciones', 'custom-admin-dashboard'); ?></th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php if (empty($users)) : ?>
                         <tr>
-                            <td colspan="5"><?php esc_html_e('No hay usuarios que coincidan.', 'custom-admin-dashboard'); ?></td>
+                            <td colspan="6"><?php esc_html_e('No hay usuarios que coincidan.', 'custom-admin-dashboard'); ?></td>
                         </tr>
                     <?php else : ?>
                         <?php foreach ($users as $user) : ?>
@@ -200,6 +215,10 @@ class CAD_User_Manager {
                             if ($email_value === '') {
                                 $email_value = (string) $user->user_email;
                             }
+                            $use_period_value = $this->normalize_use_period_value(
+                                $this->normalize_meta_to_string(get_user_meta($user->ID, 'use_period', true))
+                            );
+                            $use_period_status = $this->get_use_period_status_key($use_period_value);
                             $edit_url = add_query_arg(
                                 array(
                                     'page'    => 'cad-user-management',
@@ -214,6 +233,26 @@ class CAD_User_Manager {
                                 <td><code><?php echo esc_html($type_label); ?></code></td>
                                 <td><?php echo esc_html($name_value); ?></td>
                                 <td><?php echo esc_html($email_value); ?></td>
+                                <td>
+                                    <?php if ($use_period_value === '') : ?>
+                                        &mdash;
+                                    <?php else : ?>
+                                        <div><?php echo esc_html($use_period_value); ?></div>
+                                        <?php if ($use_period_status !== '') : ?>
+                                            <?php
+                                            $status_label = $use_period_status === 'active'
+                                                ? __('Activo', 'custom-admin-dashboard')
+                                                : __('Caducado', 'custom-admin-dashboard');
+                                            $status_style = $use_period_status === 'active'
+                                                ? 'background:#d1e7dd;color:#0f5132;'
+                                                : 'background:#f8d7da;color:#842029;';
+                                            ?>
+                                            <span style="display:inline-block;margin-top:6px;padding:2px 8px;border-radius:999px;font-size:12px;<?php echo esc_attr($status_style); ?>">
+                                                <?php echo esc_html($status_label); ?>
+                                            </span>
+                                        <?php endif; ?>
+                                    <?php endif; ?>
+                                </td>
                                 <td>
                                     <a class="button button-primary" href="<?php echo esc_url($edit_url); ?>">
                                         <?php esc_html_e('Editar perfil visual', 'custom-admin-dashboard'); ?>
@@ -291,15 +330,12 @@ class CAD_User_Manager {
                     </tbody>
                 </table>
 
-                <h2><?php esc_html_e('Relaciones del usuario', 'custom-admin-dashboard'); ?></h2>
-                <?php $this->render_user_relations($user_id); ?>
-
                 <?php submit_button(__('Guardar perfil', 'custom-admin-dashboard')); ?>
             </form>
         </div>
         <?php
 
-        $this->render_media_picker_script();
+        $this->render_admin_inline_script();
     }
 
     /**
@@ -315,94 +351,94 @@ class CAD_User_Manager {
     private function get_profile_fields() {
         return array(
             array(
-                'label'   => 'Foto de perfil',
+                'label'    => 'Foto de perfil',
                 'meta_key' => 'profile_pic',
-                'acf_key' => 'field_683f15de2203c',
-                'type'    => 'image',
+                'acf_key'  => 'field_683f15de2203c',
+                'type'     => 'image',
             ),
             array(
-                'label'   => 'Nombre y Apellidos',
+                'label'    => 'Nombre y Apellidos',
                 'meta_key' => 'name',
-                'acf_key' => 'field_683f14a72202f',
-                'type'    => 'text',
+                'acf_key'  => 'field_683f14a72202f',
+                'type'     => 'text',
             ),
             array(
-                'label'   => 'Fecha de nacimiento',
+                'label'    => 'Fecha de nacimiento',
                 'meta_key' => 'birthdate',
-                'acf_key' => 'field_67f61aae9c8a8',
-                'type'    => 'date',
+                'acf_key'  => 'field_67f61aae9c8a8',
+                'type'     => 'birthdate',
             ),
             array(
-                'label'   => 'Email',
+                'label'    => 'Email',
                 'meta_key' => 'email',
-                'acf_key' => 'field_683f14b222030',
-                'type'    => 'email',
+                'acf_key'  => 'field_683f14b222030',
+                'type'     => 'email',
             ),
             array(
-                'label'   => 'Telefono',
+                'label'    => 'Telefono',
                 'meta_key' => 'phone',
-                'acf_key' => 'field_683f14d622031',
-                'type'    => 'text',
+                'acf_key'  => 'field_683f14d622031',
+                'type'     => 'text',
             ),
             array(
-                'label'   => 'Universidad de Adscripcion',
+                'label'    => 'Universidad de Adscripcion',
                 'meta_key' => 'adscription_university',
-                'acf_key' => 'field_67f61a8d9c8a7',
-                'type'    => 'text',
+                'acf_key'  => 'field_67f61a8d9c8a7',
+                'type'     => 'text',
             ),
             array(
-                'label'   => 'Rol en la Universidad',
+                'label'    => 'Rol en la Universidad',
                 'meta_key' => 'university_role',
-                'acf_key' => 'field_683f152522032',
-                'type'    => 'text',
+                'acf_key'  => 'field_683f152522032',
+                'type'     => 'text',
             ),
             array(
-                'label'   => 'Direccion',
+                'label'    => 'Direccion',
                 'meta_key' => 'address',
-                'acf_key' => 'field_683f153922033',
-                'type'    => 'text',
+                'acf_key'  => 'field_683f153922033',
+                'type'     => 'text',
             ),
             array(
-                'label'   => 'Direccion de trabajo',
+                'label'    => 'Direccion de trabajo',
                 'meta_key' => 'job_address',
-                'acf_key' => 'field_683f154122034',
-                'type'    => 'text',
+                'acf_key'  => 'field_683f154122034',
+                'type'     => 'text',
             ),
             array(
-                'label'   => 'Proyecto experimental',
+                'label'    => 'Proyecto experimental',
                 'meta_key' => 'experimental_project',
-                'acf_key' => 'field_683f155422035',
-                'type'    => 'text',
+                'acf_key'  => 'field_683f155422035',
+                'type'     => 'text',
             ),
             array(
-                'label'   => 'Necesidad de uso',
+                'label'    => 'Necesidad de uso',
                 'meta_key' => 'use_needs',
-                'acf_key' => 'field_683f156922036',
-                'type'    => 'text',
+                'acf_key'  => 'field_683f156922036',
+                'type'     => 'text',
             ),
             array(
-                'label'   => 'Equipos previstos',
+                'label'    => 'Equipos previstos',
                 'meta_key' => 'planned_equipment',
-                'acf_key' => 'field_683f158a22038',
-                'type'    => 'text',
+                'acf_key'  => 'field_683f158a22038',
+                'type'     => 'text',
             ),
             array(
-                'label'   => 'Periodo de uso',
+                'label'    => 'Periodo de uso',
                 'meta_key' => 'use_period',
-                'acf_key' => 'field_683f157722037',
-                'type'    => 'date',
+                'acf_key'  => 'field_683f157722037',
+                'type'     => 'use_period',
             ),
             array(
-                'label'   => 'Nombre del Aval',
+                'label'    => 'Nombre del Aval',
                 'meta_key' => 'aval_name',
-                'acf_key' => 'field_683f15c92203a',
-                'type'    => 'text',
+                'acf_key'  => 'field_683f15c92203a',
+                'type'     => 'text',
             ),
             array(
-                'label'   => 'Email del Aval',
+                'label'    => 'Email del Aval',
                 'meta_key' => 'aval_mail',
-                'acf_key' => 'field_683f15d32203b',
-                'type'    => 'email',
+                'acf_key'  => 'field_683f15d32203b',
+                'type'     => 'email',
             ),
         );
     }
@@ -447,7 +483,7 @@ class CAD_User_Manager {
             return true;
         }
 
-        $meta_type = (string) get_user_meta($user->ID, 'user_type', true);
+        $meta_type = $this->normalize_meta_to_string(get_user_meta($user->ID, 'user_type', true));
         return in_array($meta_type, $target_types, true);
     }
 
@@ -461,7 +497,7 @@ class CAD_User_Manager {
             return '';
         }
 
-        $meta_type = (string) get_user_meta($user->ID, 'user_type', true);
+        $meta_type = $this->normalize_meta_to_string(get_user_meta($user->ID, 'user_type', true));
         if ($meta_type !== '') {
             return $meta_type;
         }
@@ -492,17 +528,34 @@ class CAD_User_Manager {
             return '';
         }
 
-        $meta_type = (string) get_user_meta($user_id, 'user_type', true);
+        $meta_type = $this->normalize_meta_to_string(get_user_meta($user_id, 'user_type', true));
         if ($meta_type !== '') {
-            return strtolower(trim($meta_type));
+            return strtolower(remove_accents($meta_type));
         }
 
         $user_obj = get_userdata($user_id);
         if ($user_obj instanceof WP_User) {
-            return strtolower(trim($this->get_user_type_label($user_obj)));
+            return strtolower(remove_accents($this->get_user_type_label($user_obj)));
         }
 
         return '';
+    }
+
+    /**
+     * @param mixed $value
+     *
+     * @return string
+     */
+    private function normalize_meta_to_string($value) {
+        if (is_array($value)) {
+            $value = reset($value);
+        }
+
+        if (! is_scalar($value)) {
+            return '';
+        }
+
+        return trim((string) $value);
     }
 
     /**
@@ -511,8 +564,12 @@ class CAD_User_Manager {
      * @return bool
      */
     private function is_internal_user_type($user_type_value) {
-        $user_type_value = strtolower(trim((string) $user_type_value));
-        return in_array($user_type_value, array('interno', 'interna', 'internal'), true);
+        $user_type_value = strtolower(remove_accents(trim((string) $user_type_value)));
+        if ($user_type_value === '') {
+            return false;
+        }
+
+        return strpos($user_type_value, 'intern') !== false;
     }
 
     /**
@@ -613,8 +670,10 @@ class CAD_User_Manager {
         $value = get_user_meta($user_id, $meta_key, true);
         $value = is_scalar($value) ? (string) $value : wp_json_encode($value);
 
-        if ($type === 'date') {
-            $value = $this->normalize_date_input_value($value);
+        if ($type === 'birthdate') {
+            $value = $this->normalize_birthdate_value($value);
+        } elseif ($type === 'use_period') {
+            $value = $this->normalize_use_period_value($value);
         }
         ?>
         <tr>
@@ -633,9 +692,27 @@ class CAD_User_Manager {
                     ><?php echo esc_textarea($value); ?></textarea>
                 <?php elseif ($type === 'image') : ?>
                     <?php $this->render_image_field($meta_key, $value); ?>
+                <?php elseif ($type === 'birthdate') : ?>
+                    <input
+                        type="text"
+                        id="cad-field-<?php echo esc_attr($meta_key); ?>"
+                        class="regular-text cad-flatpickr-date"
+                        name="cie_fields[<?php echo esc_attr($meta_key); ?>]"
+                        value="<?php echo esc_attr($value); ?>"
+                        placeholder="<?php esc_attr_e('dd/mm/aaaa', 'custom-admin-dashboard'); ?>"
+                    />
+                <?php elseif ($type === 'use_period') : ?>
+                    <input
+                        type="text"
+                        id="cad-field-<?php echo esc_attr($meta_key); ?>"
+                        class="regular-text cad-flatpickr-range"
+                        name="cie_fields[<?php echo esc_attr($meta_key); ?>]"
+                        value="<?php echo esc_attr($value); ?>"
+                        placeholder="<?php esc_attr_e('dd/mm/aaaa — dd/mm/aaaa', 'custom-admin-dashboard'); ?>"
+                    />
                 <?php else : ?>
                     <input
-                        type="<?php echo esc_attr($type === 'email' ? 'email' : ($type === 'date' ? 'date' : 'text')); ?>"
+                        type="<?php echo esc_attr($type === 'email' ? 'email' : 'text'); ?>"
                         id="cad-field-<?php echo esc_attr($meta_key); ?>"
                         class="regular-text"
                         name="cie_fields[<?php echo esc_attr($meta_key); ?>]"
@@ -652,20 +729,14 @@ class CAD_User_Manager {
      * @param string $value
      */
     private function render_image_field($meta_key, $value) {
+        $image_url = $this->normalize_image_value($value);
         $preview_html = '';
-        if ($value !== '') {
-            if (ctype_digit($value)) {
-                $attachment_id = (int) $value;
-                $img = wp_get_attachment_image($attachment_id, 'thumbnail');
-                if ($img) {
-                    $preview_html = $img;
-                }
-            } elseif (filter_var($value, FILTER_VALIDATE_URL)) {
-                $preview_html = sprintf(
-                    '<img src="%s" alt="" style="max-width:120px;height:auto;" />',
-                    esc_url($value)
-                );
-            }
+
+        if ($image_url !== '') {
+            $preview_html = sprintf(
+                '<img src="%s" alt="" style="max-width:120px;height:auto;" />',
+                esc_url($image_url)
+            );
         }
         ?>
         <input
@@ -673,7 +744,7 @@ class CAD_User_Manager {
             id="cad-field-<?php echo esc_attr($meta_key); ?>"
             class="regular-text cad-image-value"
             name="cie_fields[<?php echo esc_attr($meta_key); ?>]"
-            value="<?php echo esc_attr($value); ?>"
+            value="<?php echo esc_attr($image_url); ?>"
         />
         <button
             type="button"
@@ -705,8 +776,9 @@ class CAD_User_Manager {
     private function save_profile_fields($user_id) {
         $fields_input = isset($_POST['cie_fields']) ? (array) wp_unslash($_POST['cie_fields']) : array();
         $user_type_value = $this->get_user_type_value($user_id);
+        $visible_fields = $this->get_visible_profile_fields($user_type_value);
 
-        foreach ($this->get_visible_profile_fields($user_type_value) as $field) {
+        foreach ($visible_fields as $field) {
             $meta_key = isset($field['meta_key']) ? (string) $field['meta_key'] : '';
             if ($meta_key === '') {
                 continue;
@@ -737,6 +809,13 @@ class CAD_User_Manager {
                 $this->sync_wp_user_email($user_id, $value);
             }
         }
+
+        if ($this->is_internal_user_type($user_type_value)) {
+            delete_user_meta($user_id, 'aval_name');
+            delete_user_meta($user_id, '_aval_name');
+            delete_user_meta($user_id, 'aval_mail');
+            delete_user_meta($user_id, '_aval_mail');
+        }
     }
 
     /**
@@ -765,15 +844,16 @@ class CAD_User_Manager {
             return $email;
         }
 
-        if ($type === 'date') {
-            return $this->normalize_date_input_value($value);
+        if ($type === 'birthdate') {
+            return $this->normalize_birthdate_value($value);
+        }
+
+        if ($type === 'use_period') {
+            return $this->normalize_use_period_value($value);
         }
 
         if ($type === 'image') {
-            if (ctype_digit($value)) {
-                return (string) absint($value);
-            }
-            return esc_url_raw($value);
+            return $this->normalize_image_value($value);
         }
 
         return sanitize_text_field($value);
@@ -802,261 +882,39 @@ class CAD_User_Manager {
     }
 
     /**
-     * Render relationship panels.
-     *
-     * @param int $user_id
+     * Print media picker and flatpickr initializer inline script.
      */
-    private function render_user_relations($user_id) {
-        $relation_settings = $this->get_relation_settings();
-        $relation_meta_keys = isset($relation_settings['user_relation_meta_keys'])
-            ? (array) $relation_settings['user_relation_meta_keys']
-            : array();
-        $groups = $this->get_relation_groups();
-        ?>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;">
-            <?php foreach ($groups as $group) : ?>
-                <?php
-                $posts = $this->get_related_posts_for_user(
-                    $user_id,
-                    isset($group['post_types']) ? (array) $group['post_types'] : array(),
-                    $relation_meta_keys,
-                    self::RELATION_LIMIT
-                );
-                ?>
-                <div style="background:#fff;border:1px solid #dcdcde;padding:12px;">
-                    <h3 style="margin-top:0;"><?php echo esc_html(isset($group['label']) ? (string) $group['label'] : ''); ?></h3>
-                    <?php $this->render_related_posts_table($posts); ?>
-                </div>
-            <?php endforeach; ?>
-        </div>
-        <?php
-    }
-
-    /**
-     * @return array
-     */
-    private function get_relation_groups() {
-        $relation_settings = $this->get_relation_settings();
-
-        return array(
-            array(
-                'label'      => __('Cursos', 'custom-admin-dashboard'),
-                'post_types' => isset($relation_settings['course_post_types']) ? (array) $relation_settings['course_post_types'] : array(),
-            ),
-            array(
-                'label'      => __('Lecciones', 'custom-admin-dashboard'),
-                'post_types' => isset($relation_settings['lesson_post_types']) ? (array) $relation_settings['lesson_post_types'] : array(),
-            ),
-            array(
-                'label'      => __('Examenes', 'custom-admin-dashboard'),
-                'post_types' => isset($relation_settings['exam_post_types']) ? (array) $relation_settings['exam_post_types'] : array(),
-            ),
-            array(
-                'label'      => __('Reservas', 'custom-admin-dashboard'),
-                'post_types' => isset($relation_settings['booking_post_types']) ? (array) $relation_settings['booking_post_types'] : array(),
-            ),
-        );
-    }
-
-    /**
-     * @param int   $user_id
-     * @param array $post_types
-     * @param array $relation_meta_keys
-     * @param int   $limit
-     *
-     * @return array
-     */
-    private function get_related_posts_for_user($user_id, $post_types, $relation_meta_keys = array(), $limit = 50) {
-        $user_id = (int) $user_id;
-        $limit   = (int) $limit;
-
-        $post_types = array_values(
-            array_filter(
-                array_map(
-                    static function ($post_type) {
-                        $post_type = sanitize_key((string) $post_type);
-                        return post_type_exists($post_type) ? $post_type : '';
-                    },
-                    (array) $post_types
-                )
-            )
-        );
-
-        if ($user_id <= 0 || empty($post_types)) {
-            return array();
-        }
-
-        $ids = array();
-
-        $by_author = new WP_Query(
-            array(
-                'post_type'              => $post_types,
-                'post_status'            => 'any',
-                'author'                 => $user_id,
-                'posts_per_page'         => $limit,
-                'fields'                 => 'ids',
-                'no_found_rows'          => true,
-                'ignore_sticky_posts'    => true,
-                'update_post_meta_cache' => false,
-                'update_post_term_cache' => false,
-            )
-        );
-
-        if (! empty($by_author->posts)) {
-            $ids = array_merge($ids, array_map('intval', (array) $by_author->posts));
-        }
-
-        $meta_keys = CAD_Access_Control::sanitize_meta_key_list((array) $relation_meta_keys);
-        if (empty($meta_keys)) {
-            $meta_keys = CAD_Access_Control::sanitize_meta_key_list(
-                array(
-                    'user_id',
-                    'customer_id',
-                    'student_id',
-                    'attendee_id',
-                    '_customer_user',
-                )
-            );
-        }
-
-        $meta_query = array('relation' => 'OR');
-        foreach ($meta_keys as $meta_key) {
-            $meta_query[] = array(
-                'key'     => $meta_key,
-                'value'   => (string) $user_id,
-                'compare' => '=',
-            );
-        }
-
-        $by_meta = new WP_Query(
-            array(
-                'post_type'              => $post_types,
-                'post_status'            => 'any',
-                'posts_per_page'         => $limit,
-                'fields'                 => 'ids',
-                'meta_query'             => $meta_query, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query
-                'no_found_rows'          => true,
-                'ignore_sticky_posts'    => true,
-                'update_post_meta_cache' => false,
-                'update_post_term_cache' => false,
-            )
-        );
-
-        if (! empty($by_meta->posts)) {
-            $ids = array_merge($ids, array_map('intval', (array) $by_meta->posts));
-        }
-
-        $ids = array_values(array_unique(array_filter($ids)));
-        if (empty($ids)) {
-            return array();
-        }
-
-        $posts = get_posts(
-            array(
-                'post_type'      => $post_types,
-                'post_status'    => 'any',
-                'post__in'       => $ids,
-                'posts_per_page' => $limit,
-                'orderby'        => 'date',
-                'order'          => 'DESC',
-            )
-        );
-
-        return is_array($posts) ? $posts : array();
-    }
-
-    /**
-     * @param array $posts
-     */
-    private function render_related_posts_table($posts) {
-        $posts = is_array($posts) ? $posts : array();
-        ?>
-        <table class="widefat striped">
-            <thead>
-                <tr>
-                    <th><?php esc_html_e('Titulo', 'custom-admin-dashboard'); ?></th>
-                    <th><?php esc_html_e('Tipo', 'custom-admin-dashboard'); ?></th>
-                    <th><?php esc_html_e('Estado', 'custom-admin-dashboard'); ?></th>
-                    <th><?php esc_html_e('Fecha', 'custom-admin-dashboard'); ?></th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php if (empty($posts)) : ?>
-                    <tr>
-                        <td colspan="4"><?php esc_html_e('Sin resultados.', 'custom-admin-dashboard'); ?></td>
-                    </tr>
-                <?php else : ?>
-                    <?php foreach ($posts as $post_item) : ?>
-                        <?php
-                        $edit_link = get_edit_post_link($post_item->ID);
-                        $title = get_the_title($post_item->ID);
-                        ?>
-                        <tr>
-                            <td>
-                                <?php if ($edit_link) : ?>
-                                    <a href="<?php echo esc_url($edit_link); ?>">
-                                        <?php echo esc_html($title !== '' ? $title : ('#' . $post_item->ID)); ?>
-                                    </a>
-                                <?php else : ?>
-                                    <?php echo esc_html($title !== '' ? $title : ('#' . $post_item->ID)); ?>
-                                <?php endif; ?>
-                            </td>
-                            <td><code><?php echo esc_html((string) $post_item->post_type); ?></code></td>
-                            <td><?php echo esc_html((string) $post_item->post_status); ?></td>
-                            <td><?php echo esc_html(mysql2date('Y-m-d H:i', (string) $post_item->post_date)); ?></td>
-                        </tr>
-                    <?php endforeach; ?>
-                <?php endif; ?>
-            </tbody>
-        </table>
-        <?php
-    }
-
-    /**
-     * @return array
-     */
-    private function get_relation_settings() {
-        if ($this->access_control instanceof CAD_Access_Control) {
-            return $this->access_control->get_relation_settings();
-        }
-
-        $defaults = CAD_Access_Control::get_default_settings();
-        return CAD_Access_Control::sanitize_relation_settings(
-            isset($defaults['relations']) ? $defaults['relations'] : array()
-        );
-    }
-
-    /**
-     * Print media picker inline script.
-     */
-    private function render_media_picker_script() {
+    private function render_admin_inline_script() {
         ?>
         <script>
         (function($){
-            if (typeof wp === 'undefined' || typeof wp.media === 'undefined') {
-                return;
-            }
-
             function setPreview(previewSelector, url) {
                 var $preview = $(previewSelector);
                 if (!$preview.length) {
                     return;
                 }
+
                 if (!url) {
                     $preview.html('');
                     return;
                 }
+
                 $preview.html('<img src="' + url + '" alt="" style="max-width:120px;height:auto;" />');
             }
 
             $(document).on('click', '.cad-image-upload', function(e){
                 e.preventDefault();
+                if (typeof wp === 'undefined' || typeof wp.media === 'undefined') {
+                    return;
+                }
+
                 var $button = $(this);
                 var target = $button.data('target');
                 var preview = $button.data('preview');
                 if (!target) {
                     return;
                 }
+
                 var frame = wp.media({
                     title: 'Seleccionar imagen',
                     library: { type: 'image' },
@@ -1065,13 +923,22 @@ class CAD_User_Manager {
                 });
 
                 frame.on('select', function(){
-                    var attachment = frame.state().get('selection').first().toJSON();
-                    var value = attachment.id ? String(attachment.id) : (attachment.url || '');
-                    $(target).val(value);
-                    var previewUrl = (attachment.sizes && attachment.sizes.thumbnail)
-                        ? attachment.sizes.thumbnail.url
-                        : (attachment.url || '');
-                    setPreview(preview, previewUrl);
+                    var selection = frame.state().get('selection');
+                    if (!selection || !selection.first()) {
+                        return;
+                    }
+
+                    var attachment = selection.first().toJSON();
+                    var imageUrl = attachment.url || '';
+                    if (!imageUrl && attachment.sizes && attachment.sizes.full) {
+                        imageUrl = attachment.sizes.full.url || '';
+                    }
+                    if (!imageUrl && attachment.sizes && attachment.sizes.thumbnail) {
+                        imageUrl = attachment.sizes.thumbnail.url || '';
+                    }
+
+                    $(target).val(imageUrl);
+                    setPreview(preview, imageUrl);
                 });
 
                 frame.open();
@@ -1085,37 +952,259 @@ class CAD_User_Manager {
                 if (!target) {
                     return;
                 }
+
                 $(target).val('');
                 setPreview(preview, '');
             });
+
+            if (typeof flatpickr !== 'undefined') {
+                $('.cad-flatpickr-date').each(function(){
+                    if (this._flatpickr) {
+                        return;
+                    }
+
+                    flatpickr(this, {
+                        dateFormat: 'd/m/Y',
+                        allowInput: true
+                    });
+                });
+
+                $('.cad-flatpickr-range').each(function(){
+                    if (this._flatpickr) {
+                        return;
+                    }
+
+                    flatpickr(this, {
+                        mode: 'range',
+                        dateFormat: 'd/m/Y',
+                        conjunction: ' — ',
+                        allowInput: true
+                    });
+                });
+            }
         })(jQuery);
         </script>
         <?php
     }
 
     /**
-     * Normalize date values to HTML date format.
+     * Normalize birthdate values to d/m/Y while preserving unparseable text.
      *
      * @param string $value
      *
      * @return string
      */
-    private function normalize_date_input_value($value) {
+    private function normalize_birthdate_value($value) {
         $value = trim((string) $value);
         if ($value === '') {
             return '';
         }
 
-        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) {
-            return $value;
+        $date = $this->parse_date_value($value);
+        if (! $date instanceof DateTimeImmutable) {
+            return sanitize_text_field($value);
+        }
+
+        return $this->format_date_value($date);
+    }
+
+    /**
+     * Normalize use period values to "d/m/Y — d/m/Y".
+     *
+     * @param string $value
+     *
+     * @return string
+     */
+    private function normalize_use_period_value($value) {
+        $value = trim((string) $value);
+        if ($value === '') {
+            return '';
+        }
+
+        $range = $this->parse_use_period_range($value);
+        if (empty($range)) {
+            return sanitize_text_field($value);
+        }
+
+        return $range['start'] . self::USE_PERIOD_SEPARATOR . $range['end'];
+    }
+
+    /**
+     * @param string $value
+     *
+     * @return array
+     */
+    private function parse_use_period_range($value) {
+        $parts = $this->extract_use_period_parts($value);
+        if (count($parts) !== 2) {
+            return array();
+        }
+
+        $start = $this->parse_date_value($parts[0]);
+        $end = $this->parse_date_value($parts[1]);
+
+        if (! $start instanceof DateTimeImmutable || ! $end instanceof DateTimeImmutable) {
+            return array();
+        }
+
+        if ($start > $end) {
+            $tmp = $start;
+            $start = $end;
+            $end = $tmp;
+        }
+
+        return array(
+            'start' => $this->format_date_value($start),
+            'end'   => $this->format_date_value($end),
+        );
+    }
+
+    /**
+     * @param string $value
+     *
+     * @return array
+     */
+    private function extract_use_period_parts($value) {
+        $value = trim((string) $value);
+        if ($value === '') {
+            return array();
+        }
+
+        $delimiters = array(
+            self::USE_PERIOD_SEPARATOR,
+            ' – ',
+            ' to ',
+            ' al ',
+            ' - ',
+        );
+
+        foreach ($delimiters as $delimiter) {
+            $parts = explode($delimiter, $value, 2);
+            if (count($parts) !== 2) {
+                continue;
+            }
+
+            $start = trim((string) $parts[0]);
+            $end = trim((string) $parts[1]);
+            if ($start !== '' && $end !== '') {
+                return array($start, $end);
+            }
+        }
+
+        if (preg_match('/^(.+?)\s*[—–]\s*(.+)$/u', $value, $matches)) {
+            $start = trim((string) $matches[1]);
+            $end = trim((string) $matches[2]);
+            if ($start !== '' && $end !== '') {
+                return array($start, $end);
+            }
+        }
+
+        if (preg_match('/^(.+?)\s+to\s+(.+)$/i', $value, $matches)) {
+            $start = trim((string) $matches[1]);
+            $end = trim((string) $matches[2]);
+            if ($start !== '' && $end !== '') {
+                return array($start, $end);
+            }
+        }
+
+        return array();
+    }
+
+    /**
+     * @param string $value
+     *
+     * @return DateTimeImmutable|null
+     */
+    private function parse_date_value($value) {
+        $value = trim((string) $value);
+        if ($value === '') {
+            return null;
+        }
+
+        $timezone = wp_timezone();
+        $formats = array('d/m/Y', 'Y-m-d', 'd-m-Y', 'd.m.Y');
+
+        foreach ($formats as $format) {
+            $date = DateTimeImmutable::createFromFormat('!' . $format, $value, $timezone);
+            if (! $date instanceof DateTimeImmutable) {
+                continue;
+            }
+
+            $errors = DateTimeImmutable::getLastErrors();
+            if (
+                $errors === false ||
+                (
+                    isset($errors['warning_count'], $errors['error_count']) &&
+                    (int) $errors['warning_count'] === 0 &&
+                    (int) $errors['error_count'] === 0
+                )
+            ) {
+                return $date;
+            }
         }
 
         $timestamp = strtotime($value);
         if ($timestamp === false) {
+            return null;
+        }
+
+        return (new DateTimeImmutable('@' . $timestamp))->setTimezone($timezone);
+    }
+
+    /**
+     * @param DateTimeImmutable $date
+     *
+     * @return string
+     */
+    private function format_date_value($date) {
+        return $date->format('d/m/Y');
+    }
+
+    /**
+     * @param string $use_period_value
+     *
+     * @return string
+     */
+    private function get_use_period_status_key($use_period_value) {
+        $range = $this->parse_use_period_range($use_period_value);
+        if (empty($range) || ! isset($range['end'])) {
             return '';
         }
 
-        return gmdate('Y-m-d', $timestamp);
+        $end_date = $this->parse_date_value($range['end']);
+        if (! $end_date instanceof DateTimeImmutable) {
+            return '';
+        }
+
+        $today = new DateTimeImmutable('today', wp_timezone());
+        if ($today <= $end_date) {
+            return 'active';
+        }
+
+        return 'expired';
+    }
+
+    /**
+     * @param string $value
+     *
+     * @return string
+     */
+    private function normalize_image_value($value) {
+        $value = trim((string) $value);
+        if ($value === '') {
+            return '';
+        }
+
+        if (ctype_digit($value)) {
+            $attachment_id = (int) $value;
+            $url = wp_get_attachment_image_url($attachment_id, 'full');
+            if (! is_string($url) || $url === '') {
+                $url = wp_get_attachment_url($attachment_id);
+            }
+            return is_string($url) ? esc_url_raw($url) : '';
+        }
+
+        return esc_url_raw($value);
     }
 
     /**
