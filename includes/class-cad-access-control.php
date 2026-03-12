@@ -6,6 +6,9 @@ if (! defined('ABSPATH')) {
 
 class CAD_Access_Control {
     const OPTION_KEY = 'cad_settings';
+    const ROLE_ADMIN = 'admin';
+    const ROLE_ADMIN_ALIAS = 'administrator';
+    const ROLE_ADMIN_LABORATORY = 'admin_laboratorio';
 
     /**
      * @var array|null
@@ -17,26 +20,19 @@ class CAD_Access_Control {
      */
     public static function get_default_settings() {
         return array(
-            'role_css'   => array(),
-            'relations'  => array(
-                'course_post_types'      => array('course', 'courses', 'sfwd-courses', 'lp_course', 'tutor_course'),
-                'lesson_post_types'      => array('lesson', 'lessons', 'sfwd-lessons', 'lp_lesson', 'tutor_lesson'),
-                'exam_post_types'        => array('exam', 'exams', 'quiz', 'sfwd-quiz', 'tutor_quiz'),
-                'booking_post_types'     => array('booking', 'bookings', 'wc_booking', 'bookly_appointment'),
-                'user_relation_meta_keys' => array(
-                    'user_id',
-                    'customer_id',
-                    'student_id',
-                    'attendee_id',
-                    '_customer_user',
-                    'author_id',
-                    'client_id',
-                    'booking_user',
-                    'owner_id',
-                    'instructor_id',
-                    'teacher_id',
-                ),
-            ),
+            'role_css' => array(),
+        );
+    }
+
+    /**
+     * Editable role map in settings page.
+     *
+     * @return array
+     */
+    public static function get_editable_roles() {
+        return array(
+            self::ROLE_ADMIN => __('Admin', 'custom-admin-dashboard'),
+            self::ROLE_ADMIN_LABORATORY => __('Admin laboratorio', 'custom-admin-dashboard'),
         );
     }
 
@@ -46,17 +42,13 @@ class CAD_Access_Control {
      * @return array
      */
     public static function normalize_settings($settings) {
-        $defaults = self::get_default_settings();
         if (! is_array($settings)) {
             $settings = array();
         }
 
         return array(
-            'role_css'  => self::sanitize_role_css_map(
+            'role_css' => self::sanitize_role_css_map(
                 isset($settings['role_css']) ? $settings['role_css'] : array()
-            ),
-            'relations' => self::sanitize_relation_settings(
-                isset($settings['relations']) ? $settings['relations'] : $defaults['relations']
             ),
         );
     }
@@ -84,16 +76,6 @@ class CAD_Access_Control {
     }
 
     /**
-     * @return array
-     */
-    public function get_relation_settings() {
-        $settings = $this->get_settings();
-        return isset($settings['relations']) && is_array($settings['relations'])
-            ? self::sanitize_relation_settings($settings['relations'])
-            : self::sanitize_relation_settings(array());
-    }
-
-    /**
      * @param mixed $role_css
      *
      * @return array
@@ -103,11 +85,15 @@ class CAD_Access_Control {
             return array();
         }
 
-        $valid_roles = self::sanitize_role_list(array_keys($role_css));
+        $valid_roles = array_keys(self::get_editable_roles());
         $sanitized   = array();
 
-        foreach ($valid_roles as $role_key) {
-            $raw_css = isset($role_css[$role_key]) ? $role_css[$role_key] : '';
+        foreach ($role_css as $role_key => $raw_css) {
+            $role_key = self::normalize_role_key($role_key);
+            if (! in_array($role_key, $valid_roles, true)) {
+                continue;
+            }
+
             $clean   = self::sanitize_css($raw_css);
 
             if ($clean !== '') {
@@ -128,16 +114,16 @@ class CAD_Access_Control {
             $roles = array();
         }
 
+        $editable_roles = array_keys(self::get_editable_roles());
         $sanitized = array();
-        $wp_roles  = wp_roles();
 
         foreach ($roles as $role) {
-            $role = sanitize_key((string) $role);
+            $role = self::normalize_role_key($role);
             if ($role === '') {
                 continue;
             }
 
-            if ($wp_roles instanceof WP_Roles && $wp_roles->is_role($role)) {
+            if (in_array($role, $editable_roles, true)) {
                 $sanitized[] = $role;
             }
         }
@@ -158,84 +144,13 @@ class CAD_Access_Control {
         return $css;
     }
 
-    /**
-     * @param mixed $relation_settings
-     *
-     * @return array
-     */
-    public static function sanitize_relation_settings($relation_settings) {
-        $defaults = self::get_default_settings();
-        $defaults = isset($defaults['relations']) ? $defaults['relations'] : array();
-
-        if (! is_array($relation_settings)) {
-            $relation_settings = array();
+    private static function normalize_role_key($role) {
+        $role = sanitize_key((string) $role);
+        if ($role === self::ROLE_ADMIN_ALIAS) {
+            return self::ROLE_ADMIN;
         }
 
-        $relation_settings = wp_parse_args($relation_settings, $defaults);
-
-        return array(
-            'course_post_types'       => self::sanitize_post_type_list(
-                isset($relation_settings['course_post_types']) ? $relation_settings['course_post_types'] : array()
-            ),
-            'lesson_post_types'       => self::sanitize_post_type_list(
-                isset($relation_settings['lesson_post_types']) ? $relation_settings['lesson_post_types'] : array()
-            ),
-            'exam_post_types'         => self::sanitize_post_type_list(
-                isset($relation_settings['exam_post_types']) ? $relation_settings['exam_post_types'] : array()
-            ),
-            'booking_post_types'      => self::sanitize_post_type_list(
-                isset($relation_settings['booking_post_types']) ? $relation_settings['booking_post_types'] : array()
-            ),
-            'user_relation_meta_keys' => self::sanitize_meta_key_list(
-                isset($relation_settings['user_relation_meta_keys']) ? $relation_settings['user_relation_meta_keys'] : array()
-            ),
-        );
-    }
-
-    /**
-     * @param mixed $post_types
-     *
-     * @return array
-     */
-    public static function sanitize_post_type_list($post_types) {
-        if (! is_array($post_types)) {
-            $post_types = array();
-        }
-
-        $sanitized = array();
-        foreach ($post_types as $post_type) {
-            $post_type = sanitize_key((string) $post_type);
-            if ($post_type === '') {
-                continue;
-            }
-            $sanitized[] = $post_type;
-        }
-
-        return array_values(array_unique($sanitized));
-    }
-
-    /**
-     * @param mixed $keys
-     *
-     * @return array
-     */
-    public static function sanitize_meta_key_list($keys) {
-        if (! is_array($keys)) {
-            $keys = array();
-        }
-
-        $sanitized = array();
-        foreach ($keys as $key) {
-            $key = sanitize_text_field((string) $key);
-            $key = preg_replace('/[^a-zA-Z0-9_\-]/', '', $key);
-            $key = trim((string) $key);
-            if ($key === '') {
-                continue;
-            }
-            $sanitized[] = $key;
-        }
-
-        return array_values(array_unique($sanitized));
+        return $role;
     }
 
     /**
