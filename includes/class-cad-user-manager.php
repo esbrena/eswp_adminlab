@@ -87,7 +87,7 @@ class CAD_User_Manager {
     }
 
     /**
-     * Handle custom user save requests.
+     * Handle custom user actions.
      */
     public function handle_admin_requests() {
         if (! is_admin()) {
@@ -99,13 +99,26 @@ class CAD_User_Manager {
             return;
         }
 
-        if (
-            ! isset($_POST['cad_action']) ||
-            sanitize_key(wp_unslash($_POST['cad_action'])) !== 'save_cie_user'
-        ) {
+        if (! isset($_POST['cad_action'])) {
             return;
         }
 
+        $action = sanitize_key(wp_unslash($_POST['cad_action']));
+        if ($action === 'save_cie_user') {
+            $this->handle_save_request();
+            return;
+        }
+
+        if ($action === 'delete_cie_user') {
+            $this->handle_delete_request();
+            return;
+        }
+    }
+
+    /**
+     * Handle user save request.
+     */
+    private function handle_save_request() {
         if (! current_user_can('list_users')) {
             wp_die(esc_html__('No tienes permisos para gestionar usuarios.', 'custom-admin-dashboard'));
         }
@@ -139,6 +152,60 @@ class CAD_User_Manager {
                     'action'          => 'edit',
                     'user_id'         => $user_id,
                     'cad_user_notice' => 'saved',
+                ),
+                admin_url('admin.php')
+            )
+        );
+        exit;
+    }
+
+    /**
+     * Handle user delete request.
+     */
+    private function handle_delete_request() {
+        if (! current_user_can('list_users')) {
+            wp_die(esc_html__('No tienes permisos para gestionar usuarios.', 'custom-admin-dashboard'));
+        }
+
+        $user_id = isset($_POST['user_id']) ? absint($_POST['user_id']) : 0;
+        if ($user_id <= 0) {
+            wp_die(esc_html__('Usuario invalido.', 'custom-admin-dashboard'));
+        }
+
+        check_admin_referer('cad_delete_cie_user_' . $user_id);
+
+        $user = get_userdata($user_id);
+        if (! $user instanceof WP_User) {
+            wp_die(esc_html__('No se ha encontrado el usuario.', 'custom-admin-dashboard'));
+        }
+
+        if (! $this->user_matches_target_type($user)) {
+            wp_die(esc_html__('Este usuario no pertenece a los tipos permitidos.', 'custom-admin-dashboard'));
+        }
+
+        if (! current_user_can('delete_user', $user_id)) {
+            wp_die(esc_html__('No tienes permisos para eliminar este usuario.', 'custom-admin-dashboard'));
+        }
+
+        $current_user_id = get_current_user_id();
+        if ((int) $current_user_id === (int) $user_id) {
+            wp_die(esc_html__('No puedes eliminar tu propio usuario desde esta pantalla.', 'custom-admin-dashboard'));
+        }
+
+        if (! function_exists('wp_delete_user')) {
+            require_once ABSPATH . 'wp-admin/includes/user.php';
+        }
+
+        $reassign_user_id = absint($current_user_id);
+        $deleted = $reassign_user_id > 0
+            ? wp_delete_user($user_id, $reassign_user_id)
+            : wp_delete_user($user_id);
+
+        wp_safe_redirect(
+            add_query_arg(
+                array(
+                    'page'            => 'cad-user-management',
+                    'cad_user_notice' => $deleted ? 'deleted' : 'delete_error',
                 ),
                 admin_url('admin.php')
             )
@@ -181,6 +248,7 @@ class CAD_User_Manager {
         <div class="wrap">
             <h1><?php esc_html_e('CIE - Usuarios', 'custom-admin-dashboard'); ?></h1>
             <?php $this->render_user_manager_styles(); ?>
+            <?php $this->render_notice(); ?>
             <p class="description">
                 <?php esc_html_e('Solo se muestran usuarios tipo cie_user y cie_new_user.', 'custom-admin-dashboard'); ?>
             </p>
@@ -227,6 +295,7 @@ class CAD_User_Manager {
                         $is_active = $this->is_user_active($user);
                         $is_internal = $this->is_user_internal($user);
                         $photo_url = $this->get_user_photo_url($user->ID, 96);
+                        $can_delete_user = current_user_can('delete_user', $user->ID) && get_current_user_id() !== (int) $user->ID;
                         $edit_url = add_query_arg(
                             array(
                                 'page'    => 'cad-user-management',
@@ -256,11 +325,21 @@ class CAD_User_Manager {
                                 </span>
                             </div>
 
-                            <p class="cad-user-card__actions">
+                            <div class="cad-user-card__actions">
                                 <a class="button button-primary" href="<?php echo esc_url($edit_url); ?>">
                                     <?php esc_html_e('Editar ficha', 'custom-admin-dashboard'); ?>
                                 </a>
-                            </p>
+                                <?php if ($can_delete_user) : ?>
+                                    <form method="post" action="<?php echo esc_url(add_query_arg(array('page' => 'cad-user-management'), admin_url('admin.php'))); ?>" class="cad-user-delete-form" onsubmit="return confirm('<?php echo esc_js(__('¿Seguro que quieres eliminar este usuario?', 'custom-admin-dashboard')); ?>');">
+                                        <?php wp_nonce_field('cad_delete_cie_user_' . (int) $user->ID); ?>
+                                        <input type="hidden" name="cad_action" value="delete_cie_user" />
+                                        <input type="hidden" name="user_id" value="<?php echo esc_attr((string) $user->ID); ?>" />
+                                        <button type="submit" class="button cad-delete-user-button" title="<?php esc_attr_e('Eliminar usuario', 'custom-admin-dashboard'); ?>" aria-label="<?php esc_attr_e('Eliminar usuario', 'custom-admin-dashboard'); ?>">
+                                            <span class="dashicons dashicons-trash" aria-hidden="true"></span>
+                                        </button>
+                                    </form>
+                                <?php endif; ?>
+                            </div>
                         </article>
                     <?php endforeach; ?>
                 </div>
@@ -1319,6 +1398,12 @@ class CAD_User_Manager {
             }
             .cad-user-card__actions {
                 margin: 14px 0 0;
+                display: flex;
+                gap: 8px;
+                align-items: center;
+            }
+            .cad-user-delete-form {
+                margin: 0;
             }
 
             .cad-user-edit-layout {
@@ -1439,6 +1524,28 @@ class CAD_User_Manager {
             }
             .cad-user-related-tabs__panel.is-active {
                 display: block;
+            }
+            .cad-delete-user-button {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                width: 34px;
+                min-height: 34px;
+                padding: 0;
+                border-color: #f1b6b6;
+                color: #b32d2e;
+            }
+            .cad-delete-user-button:hover,
+            .cad-delete-user-button:focus {
+                border-color: #d63638;
+                color: #d63638;
+                background: #fff5f5;
+            }
+            .cad-delete-user-button .dashicons {
+                width: 18px;
+                height: 18px;
+                font-size: 18px;
+                line-height: 18px;
             }
 
             @media (max-width: 960px) {
@@ -1982,13 +2089,27 @@ class CAD_User_Manager {
         }
 
         $notice = sanitize_key(wp_unslash($_GET['cad_user_notice']));
-        if ($notice !== 'saved') {
+        if ($notice === 'saved') {
+            printf(
+                '<div class="notice notice-success is-dismissible"><p>%s</p></div>',
+                esc_html__('Usuario guardado correctamente.', 'custom-admin-dashboard')
+            );
             return;
         }
 
-        printf(
-            '<div class="notice notice-success is-dismissible"><p>%s</p></div>',
-            esc_html__('Usuario guardado correctamente.', 'custom-admin-dashboard')
-        );
+        if ($notice === 'deleted') {
+            printf(
+                '<div class="notice notice-success is-dismissible"><p>%s</p></div>',
+                esc_html__('Usuario eliminado correctamente.', 'custom-admin-dashboard')
+            );
+            return;
+        }
+
+        if ($notice === 'delete_error') {
+            printf(
+                '<div class="notice notice-error is-dismissible"><p>%s</p></div>',
+                esc_html__('No se ha podido eliminar el usuario.', 'custom-admin-dashboard')
+            );
+        }
     }
 }
