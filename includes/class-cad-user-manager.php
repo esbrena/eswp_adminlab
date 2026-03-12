@@ -170,99 +170,101 @@ class CAD_User_Manager {
      */
     private function render_user_list_page() {
         $search = isset($_GET['s']) ? sanitize_text_field(wp_unslash($_GET['s'])) : '';
-        $users  = $this->get_target_users($search);
+        $status_filter = isset($_GET['status']) ? sanitize_key(wp_unslash($_GET['status'])) : 'all';
+        $type_filter = isset($_GET['type']) ? sanitize_key(wp_unslash($_GET['type'])) : 'all';
+
+        $status_filter = in_array($status_filter, array('all', 'active', 'inactive'), true) ? $status_filter : 'all';
+        $type_filter = in_array($type_filter, array('all', 'internal', 'external'), true) ? $type_filter : 'all';
+
+        $users  = $this->get_target_users($search, $status_filter, $type_filter);
         ?>
         <div class="wrap">
             <h1><?php esc_html_e('CIE - Usuarios', 'custom-admin-dashboard'); ?></h1>
+            <?php $this->render_user_manager_styles(); ?>
             <p class="description">
                 <?php esc_html_e('Solo se muestran usuarios tipo cie_user y cie_new_user.', 'custom-admin-dashboard'); ?>
             </p>
 
-            <form method="get" action="<?php echo esc_url(admin_url('admin.php')); ?>">
+            <form method="get" action="<?php echo esc_url(admin_url('admin.php')); ?>" class="cad-user-list-toolbar">
                 <input type="hidden" name="page" value="cad-user-management" />
-                <p class="search-box">
+                <p class="search-box cad-user-list-toolbar__search">
                     <label class="screen-reader-text" for="cad-user-search"><?php esc_html_e('Buscar usuarios', 'custom-admin-dashboard'); ?></label>
                     <input type="search" id="cad-user-search" name="s" value="<?php echo esc_attr($search); ?>" />
-                    <?php submit_button(__('Buscar', 'custom-admin-dashboard'), 'secondary', '', false); ?>
                 </p>
+
+                <div class="cad-user-list-toolbar__filters">
+                    <label for="cad-user-status-filter"><?php esc_html_e('Estado', 'custom-admin-dashboard'); ?></label>
+                    <select id="cad-user-status-filter" name="status">
+                        <option value="all" <?php selected($status_filter, 'all'); ?>><?php esc_html_e('Todos', 'custom-admin-dashboard'); ?></option>
+                        <option value="active" <?php selected($status_filter, 'active'); ?>><?php esc_html_e('Activos', 'custom-admin-dashboard'); ?></option>
+                        <option value="inactive" <?php selected($status_filter, 'inactive'); ?>><?php esc_html_e('No activos', 'custom-admin-dashboard'); ?></option>
+                    </select>
+
+                    <label for="cad-user-type-filter"><?php esc_html_e('Tipo', 'custom-admin-dashboard'); ?></label>
+                    <select id="cad-user-type-filter" name="type">
+                        <option value="all" <?php selected($type_filter, 'all'); ?>><?php esc_html_e('Todos', 'custom-admin-dashboard'); ?></option>
+                        <option value="internal" <?php selected($type_filter, 'internal'); ?>><?php esc_html_e('Internos', 'custom-admin-dashboard'); ?></option>
+                        <option value="external" <?php selected($type_filter, 'external'); ?>><?php esc_html_e('No internos', 'custom-admin-dashboard'); ?></option>
+                    </select>
+                </div>
+
+                <div class="cad-user-list-toolbar__actions">
+                    <?php submit_button(__('Buscar y filtrar', 'custom-admin-dashboard'), 'secondary', '', false); ?>
+                    <a class="button" href="<?php echo esc_url(add_query_arg(array('page' => 'cad-user-management'), admin_url('admin.php'))); ?>">
+                        <?php esc_html_e('Limpiar', 'custom-admin-dashboard'); ?>
+                    </a>
+                </div>
             </form>
 
-            <table class="widefat striped">
-                <thead>
-                    <tr>
-                        <th><?php esc_html_e('ID', 'custom-admin-dashboard'); ?></th>
-                        <th><?php esc_html_e('Tipo', 'custom-admin-dashboard'); ?></th>
-                        <th><?php esc_html_e('Nombre', 'custom-admin-dashboard'); ?></th>
-                        <th><?php esc_html_e('Email', 'custom-admin-dashboard'); ?></th>
-                        <th><?php esc_html_e('Periodo de uso', 'custom-admin-dashboard'); ?></th>
-                        <th><?php esc_html_e('Acciones', 'custom-admin-dashboard'); ?></th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php if (empty($users)) : ?>
-                        <tr>
-                            <td colspan="6"><?php esc_html_e('No hay usuarios que coincidan.', 'custom-admin-dashboard'); ?></td>
-                        </tr>
-                    <?php else : ?>
-                        <?php foreach ($users as $user) : ?>
-                            <?php
-                            $type_label = $this->get_user_type_label($user);
-                            $name_value = (string) get_user_meta($user->ID, 'name', true);
-                            if ($name_value === '') {
-                                $name_value = (string) $user->display_name;
-                            }
-                            $email_value = (string) get_user_meta($user->ID, 'email', true);
-                            if ($email_value === '') {
-                                $email_value = (string) $user->user_email;
-                            }
-                            $use_period_value = $this->normalize_use_period_value(
-                                $this->normalize_meta_to_string(get_user_meta($user->ID, 'use_period', true))
-                            );
-                            $use_period_status = $this->get_use_period_status_key($use_period_value);
-                            $edit_url = add_query_arg(
-                                array(
-                                    'page'    => 'cad-user-management',
-                                    'action'  => 'edit',
-                                    'user_id' => (int) $user->ID,
-                                ),
-                                admin_url('admin.php')
-                            );
-                            ?>
-                            <tr>
-                                <td><?php echo esc_html((string) $user->ID); ?></td>
-                                <td><code><?php echo esc_html($type_label); ?></code></td>
-                                <td><?php echo esc_html($name_value); ?></td>
-                                <td><?php echo esc_html($email_value); ?></td>
-                                <td>
-                                    <?php if ($use_period_value === '') : ?>
-                                        &mdash;
-                                    <?php else : ?>
-                                        <div><?php echo esc_html($use_period_value); ?></div>
-                                        <?php if ($use_period_status !== '') : ?>
-                                            <?php
-                                            $status_label = $use_period_status === 'active'
-                                                ? __('Activo', 'custom-admin-dashboard')
-                                                : __('Caducado', 'custom-admin-dashboard');
-                                            $status_style = $use_period_status === 'active'
-                                                ? 'background:#d1e7dd;color:#0f5132;'
-                                                : 'background:#f8d7da;color:#842029;';
-                                            ?>
-                                            <span style="display:inline-block;margin-top:6px;padding:2px 8px;border-radius:999px;font-size:12px;<?php echo esc_attr($status_style); ?>">
-                                                <?php echo esc_html($status_label); ?>
-                                            </span>
-                                        <?php endif; ?>
-                                    <?php endif; ?>
-                                </td>
-                                <td>
-                                    <a class="button button-primary" href="<?php echo esc_url($edit_url); ?>">
-                                        <?php esc_html_e('Editar perfil visual', 'custom-admin-dashboard'); ?>
-                                    </a>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                    <?php endif; ?>
-                </tbody>
-            </table>
+            <?php if (empty($users)) : ?>
+                <p><?php esc_html_e('No hay usuarios que coincidan.', 'custom-admin-dashboard'); ?></p>
+            <?php else : ?>
+                <div class="cad-users-grid">
+                    <?php foreach ($users as $user) : ?>
+                        <?php
+                        $name_value = $this->get_user_name_value($user);
+                        $email_value = $this->get_user_email_value($user);
+                        $is_active = $this->is_user_active($user);
+                        $is_internal = $this->is_user_internal($user);
+                        $photo_url = $this->get_user_photo_url($user->ID, 96);
+                        $edit_url = add_query_arg(
+                            array(
+                                'page'    => 'cad-user-management',
+                                'action'  => 'edit',
+                                'user_id' => (int) $user->ID,
+                            ),
+                            admin_url('admin.php')
+                        );
+                        ?>
+                        <article class="cad-user-card">
+                            <div class="cad-user-card__header">
+                                <?php if ($photo_url !== '') : ?>
+                                    <img class="cad-user-card__photo" src="<?php echo esc_url($photo_url); ?>" alt="" />
+                                <?php endif; ?>
+                                <div class="cad-user-card__identity">
+                                    <h2 class="cad-user-card__name"><?php echo esc_html($name_value !== '' ? $name_value : '-'); ?></h2>
+                                    <p class="cad-user-card__email"><?php echo esc_html($email_value !== '' ? $email_value : '-'); ?></p>
+                                </div>
+                            </div>
+
+                            <div class="cad-user-card__meta">
+                                <span class="cad-user-pill <?php echo esc_attr($is_active ? 'is-active' : 'is-inactive'); ?>">
+                                    <?php echo esc_html($is_active ? __('Activo', 'custom-admin-dashboard') : __('No activo', 'custom-admin-dashboard')); ?>
+                                </span>
+                                <span class="cad-user-pill <?php echo esc_attr($is_internal ? 'is-internal' : 'is-external'); ?>">
+                                    <?php echo esc_html($is_internal ? __('Interno', 'custom-admin-dashboard') : __('No interno', 'custom-admin-dashboard')); ?>
+                                </span>
+                            </div>
+
+                            <p class="cad-user-card__actions">
+                                <a class="button button-primary" href="<?php echo esc_url($edit_url); ?>">
+                                    <?php esc_html_e('Editar ficha', 'custom-admin-dashboard'); ?>
+                                </a>
+                            </p>
+                        </article>
+                    <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
         </div>
         <?php
     }
@@ -290,6 +292,17 @@ class CAD_User_Manager {
         $user_type_label = $this->get_user_type_label($user);
         $user_type_value = $this->get_user_type_value($user);
         $visible_fields  = $this->get_visible_profile_fields($user_type_value);
+        $editable_fields = array_values(
+            array_filter(
+                $visible_fields,
+                static function ($field) {
+                    $meta_key = isset($field['meta_key']) ? (string) $field['meta_key'] : '';
+                    return $meta_key !== 'profile_pic';
+                }
+            )
+        );
+        $name_value = $this->get_user_name_value($user);
+        $email_value = $this->get_user_email_value($user);
 
         ?>
         <div class="wrap">
@@ -302,6 +315,7 @@ class CAD_User_Manager {
                 );
                 ?>
             </h1>
+            <?php $this->render_user_manager_styles(); ?>
             <?php $this->render_notice(); ?>
 
             <p>
@@ -310,32 +324,42 @@ class CAD_User_Manager {
                 </a>
             </p>
 
-            <div style="margin: 12px 0 18px 0;">
-                <strong><?php esc_html_e('User Type:', 'custom-admin-dashboard'); ?></strong>
-                <span style="display:inline-block;margin-left:8px;padding:4px 10px;background:#2271b1;color:#fff;border-radius:999px;font-size:12px;line-height:1.5;">
-                    <?php echo esc_html($user_type_label !== '' ? $user_type_label : __('No definido', 'custom-admin-dashboard')); ?>
-                </span>
-            </div>
-
             <form method="post" action="<?php echo esc_url(add_query_arg(array('page' => 'cad-user-management'), admin_url('admin.php'))); ?>">
                 <?php wp_nonce_field('cad_save_cie_user'); ?>
                 <input type="hidden" name="cad_action" value="save_cie_user" />
                 <input type="hidden" name="user_id" value="<?php echo esc_attr((string) $user_id); ?>" />
 
-                <table class="form-table" role="presentation">
-                    <tbody>
-                        <?php foreach ($visible_fields as $field) : ?>
-                            <?php $this->render_profile_field_row($user_id, $field); ?>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
+                <div class="cad-user-edit-layout">
+                    <section class="cad-user-edit-layout__left">
+                        <?php $this->render_profile_photo_editor($user_id); ?>
+                        <h2 id="cad-user-summary-name" class="cad-user-summary-name"><?php echo esc_html($name_value !== '' ? $name_value : '-'); ?></h2>
+                        <p id="cad-user-summary-email" class="cad-user-summary-email"><?php echo esc_html($email_value !== '' ? $email_value : '-'); ?></p>
+                        <p class="cad-user-summary-type">
+                            <strong><?php esc_html_e('User Type:', 'custom-admin-dashboard'); ?></strong>
+                            <span class="cad-user-type-badge">
+                                <?php echo esc_html($user_type_label !== '' ? $user_type_label : __('No definido', 'custom-admin-dashboard')); ?>
+                            </span>
+                        </p>
+                    </section>
+
+                    <section class="cad-user-edit-layout__right">
+                        <div class="cad-user-fields-grid">
+                            <?php foreach ($editable_fields as $field) : ?>
+                                <?php $this->render_profile_field_control($user_id, $field); ?>
+                            <?php endforeach; ?>
+                        </div>
+                    </section>
+                </div>
 
                 <?php submit_button(__('Guardar perfil', 'custom-admin-dashboard')); ?>
             </form>
+
+            <?php $this->render_related_content_tabs($user_id, $user); ?>
         </div>
         <?php
 
         $this->render_admin_inline_script();
+        $this->render_user_edit_script();
     }
 
     /**
@@ -573,11 +597,136 @@ class CAD_User_Manager {
     }
 
     /**
+     * @param WP_User $user
+     *
+     * @return bool
+     */
+    private function is_user_internal($user) {
+        if (! $user instanceof WP_User) {
+            return false;
+        }
+
+        return $this->is_internal_user_type($this->get_user_type_value($user));
+    }
+
+    /**
+     * @param WP_User $user
+     *
+     * @return bool
+     */
+    private function is_user_active($user) {
+        if (! $user instanceof WP_User) {
+            return false;
+        }
+
+        if (is_multisite()) {
+            if (function_exists('is_user_spammy') && is_user_spammy($user->ID)) {
+                return false;
+            }
+
+            $deleted = get_user_option('deleted', $user->ID);
+            if ((string) $deleted === '1') {
+                return false;
+            }
+        }
+
+        return (int) $user->user_status === 0;
+    }
+
+    /**
+     * @param WP_User $user
+     *
+     * @return string
+     */
+    private function get_user_name_value($user) {
+        if (! $user instanceof WP_User) {
+            return '';
+        }
+
+        $name_value = (string) get_user_meta($user->ID, 'name', true);
+        if ($name_value !== '') {
+            return $name_value;
+        }
+
+        return (string) $user->display_name;
+    }
+
+    /**
+     * @param WP_User $user
+     *
+     * @return string
+     */
+    private function get_user_email_value($user) {
+        if (! $user instanceof WP_User) {
+            return '';
+        }
+
+        $email_value = (string) get_user_meta($user->ID, 'email', true);
+        if ($email_value !== '') {
+            return $email_value;
+        }
+
+        return (string) $user->user_email;
+    }
+
+    /**
+     * @param int $user_id
+     * @param int $size
+     *
+     * @return string
+     */
+    private function get_user_photo_url($user_id, $size = 96) {
+        $user_id = (int) $user_id;
+        $size = max(24, (int) $size);
+        $profile_pic = (string) get_user_meta($user_id, 'profile_pic', true);
+        $preview_url = $this->get_image_preview_url($profile_pic, $size >= 160 ? 'medium' : 'thumbnail');
+        if ($preview_url !== '') {
+            return $preview_url;
+        }
+
+        $avatar_url = get_avatar_url($user_id, array('size' => $size));
+        return is_string($avatar_url) ? $avatar_url : '';
+    }
+
+    /**
+     * @param WP_User $user
+     * @param string  $status_filter
+     * @param string  $type_filter
+     *
+     * @return bool
+     */
+    private function user_matches_list_filters($user, $status_filter, $type_filter) {
+        if (! $this->user_matches_target_type($user)) {
+            return false;
+        }
+
+        $is_active = $this->is_user_active($user);
+        if ($status_filter === 'active' && ! $is_active) {
+            return false;
+        }
+        if ($status_filter === 'inactive' && $is_active) {
+            return false;
+        }
+
+        $is_internal = $this->is_user_internal($user);
+        if ($type_filter === 'internal' && ! $is_internal) {
+            return false;
+        }
+        if ($type_filter === 'external' && $is_internal) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
      * @param string $search
+     * @param string $status_filter
+     * @param string $type_filter
      *
      * @return array
      */
-    private function get_target_users($search = '') {
+    private function get_target_users($search = '', $status_filter = 'all', $type_filter = 'all') {
         $search = sanitize_text_field((string) $search);
         $target_types = $this->get_target_user_types();
         $ids = array();
@@ -648,8 +797,8 @@ class CAD_User_Manager {
         return array_values(
             array_filter(
                 $users,
-                function ($user) {
-                    return $this->user_matches_target_type($user);
+                function ($user) use ($status_filter, $type_filter) {
+                    return $this->user_matches_list_filters($user, $status_filter, $type_filter);
                 }
             )
         );
@@ -660,6 +809,30 @@ class CAD_User_Manager {
      * @param array $field
      */
     private function render_profile_field_row($user_id, $field) {
+        $meta_key = isset($field['meta_key']) ? (string) $field['meta_key'] : '';
+        if ($meta_key === '') {
+            return;
+        }
+        ?>
+        <tr>
+            <th scope="row">
+                <label for="cad-field-<?php echo esc_attr($meta_key); ?>">
+                    <?php echo esc_html(isset($field['label']) ? (string) $field['label'] : $meta_key); ?>
+                </label>
+            </th>
+            <td>
+                <?php $this->render_profile_field_control($user_id, $field, false); ?>
+            </td>
+        </tr>
+        <?php
+    }
+
+    /**
+     * @param int   $user_id
+     * @param array $field
+     * @param bool  $with_wrapper
+     */
+    private function render_profile_field_control($user_id, $field, $with_wrapper = true) {
         $meta_key = isset($field['meta_key']) ? (string) $field['meta_key'] : '';
         if ($meta_key === '') {
             return;
@@ -675,52 +848,179 @@ class CAD_User_Manager {
         } elseif ($type === 'use_period') {
             $value = $this->normalize_use_period_value($value);
         }
-        ?>
-        <tr>
-            <th scope="row">
-                <label for="cad-field-<?php echo esc_attr($meta_key); ?>">
+
+        if ($with_wrapper) :
+            ?>
+            <div class="cad-user-field">
+                <label class="cad-user-field__label" for="cad-field-<?php echo esc_attr($meta_key); ?>">
                     <?php echo esc_html($label); ?>
                 </label>
-            </th>
-            <td>
-                <?php if ($type === 'textarea') : ?>
-                    <textarea
-                        id="cad-field-<?php echo esc_attr($meta_key); ?>"
-                        name="cie_fields[<?php echo esc_attr($meta_key); ?>]"
-                        rows="4"
-                        class="large-text"
-                    ><?php echo esc_textarea($value); ?></textarea>
-                <?php elseif ($type === 'image') : ?>
-                    <?php $this->render_image_field($meta_key, $value); ?>
-                <?php elseif ($type === 'birthdate') : ?>
-                    <input
-                        type="text"
-                        id="cad-field-<?php echo esc_attr($meta_key); ?>"
-                        class="regular-text cad-flatpickr-date"
-                        name="cie_fields[<?php echo esc_attr($meta_key); ?>]"
-                        value="<?php echo esc_attr($value); ?>"
-                        placeholder="<?php esc_attr_e('dd/mm/aaaa', 'custom-admin-dashboard'); ?>"
-                    />
-                <?php elseif ($type === 'use_period') : ?>
-                    <input
-                        type="text"
-                        id="cad-field-<?php echo esc_attr($meta_key); ?>"
-                        class="regular-text cad-flatpickr-range"
-                        name="cie_fields[<?php echo esc_attr($meta_key); ?>]"
-                        value="<?php echo esc_attr($value); ?>"
-                        placeholder="<?php esc_attr_e('dd/mm/aaaa — dd/mm/aaaa', 'custom-admin-dashboard'); ?>"
-                    />
-                <?php else : ?>
-                    <input
-                        type="<?php echo esc_attr($type === 'email' ? 'email' : 'text'); ?>"
-                        id="cad-field-<?php echo esc_attr($meta_key); ?>"
-                        class="regular-text"
-                        name="cie_fields[<?php echo esc_attr($meta_key); ?>]"
-                        value="<?php echo esc_attr($value); ?>"
-                    />
+            <?php
+        endif;
+
+        if ($type === 'textarea') :
+            ?>
+            <textarea
+                id="cad-field-<?php echo esc_attr($meta_key); ?>"
+                name="cie_fields[<?php echo esc_attr($meta_key); ?>]"
+                rows="4"
+                class="large-text cad-user-field__input"
+            ><?php echo esc_textarea($value); ?></textarea>
+            <?php
+        elseif ($type === 'image') :
+            $this->render_image_field($meta_key, $value);
+        elseif ($type === 'birthdate') :
+            ?>
+            <input
+                type="text"
+                id="cad-field-<?php echo esc_attr($meta_key); ?>"
+                class="regular-text cad-flatpickr-date cad-user-field__input"
+                name="cie_fields[<?php echo esc_attr($meta_key); ?>]"
+                value="<?php echo esc_attr($value); ?>"
+                placeholder="<?php esc_attr_e('dd/mm/aaaa', 'custom-admin-dashboard'); ?>"
+            />
+            <?php
+        elseif ($type === 'use_period') :
+            ?>
+            <input
+                type="text"
+                id="cad-field-<?php echo esc_attr($meta_key); ?>"
+                class="regular-text cad-flatpickr-range cad-user-field__input"
+                name="cie_fields[<?php echo esc_attr($meta_key); ?>]"
+                value="<?php echo esc_attr($value); ?>"
+                placeholder="<?php esc_attr_e('dd/mm/aaaa — dd/mm/aaaa', 'custom-admin-dashboard'); ?>"
+            />
+            <?php
+        else :
+            ?>
+            <input
+                type="<?php echo esc_attr($type === 'email' ? 'email' : 'text'); ?>"
+                id="cad-field-<?php echo esc_attr($meta_key); ?>"
+                class="regular-text cad-user-field__input"
+                name="cie_fields[<?php echo esc_attr($meta_key); ?>]"
+                value="<?php echo esc_attr($value); ?>"
+            />
+            <?php
+        endif;
+
+        if ($with_wrapper) :
+            ?>
+            </div>
+            <?php
+        endif;
+    }
+
+    /**
+     * @param int $user_id
+     */
+    private function render_profile_photo_editor($user_id) {
+        $meta_key = 'profile_pic';
+        $value = (string) get_user_meta($user_id, $meta_key, true);
+        $preview_url = $this->get_image_preview_url($value, 'medium');
+        if ($preview_url === '') {
+            $preview_url = $this->get_user_photo_url($user_id, 180);
+        }
+        ?>
+        <div class="cad-user-photo-editor">
+            <input
+                type="hidden"
+                id="cad-field-<?php echo esc_attr($meta_key); ?>"
+                class="cad-image-value"
+                name="cie_fields[<?php echo esc_attr($meta_key); ?>]"
+                value="<?php echo esc_attr($value); ?>"
+            />
+            <div id="cad-image-preview-<?php echo esc_attr($meta_key); ?>" class="cad-user-photo-editor__preview">
+                <?php if ($preview_url !== '') : ?>
+                    <img src="<?php echo esc_url($preview_url); ?>" alt="" />
                 <?php endif; ?>
-            </td>
-        </tr>
+            </div>
+            <div class="cad-user-photo-editor__actions">
+                <button
+                    type="button"
+                    class="button button-secondary cad-image-upload"
+                    data-target="#cad-field-<?php echo esc_attr($meta_key); ?>"
+                    data-preview="#cad-image-preview-<?php echo esc_attr($meta_key); ?>"
+                >
+                    <?php esc_html_e('Editar foto', 'custom-admin-dashboard'); ?>
+                </button>
+                <button
+                    type="button"
+                    class="button cad-image-clear"
+                    data-target="#cad-field-<?php echo esc_attr($meta_key); ?>"
+                    data-preview="#cad-image-preview-<?php echo esc_attr($meta_key); ?>"
+                >
+                    <?php esc_html_e('Eliminar foto', 'custom-admin-dashboard'); ?>
+                </button>
+            </div>
+        </div>
+        <?php
+    }
+
+    /**
+     * @param int     $user_id
+     * @param WP_User $user
+     */
+    private function render_related_content_tabs($user_id, $user) {
+        $tabs = array(
+            'cursos'     => __('Cursos', 'custom-admin-dashboard'),
+            'reservas'   => __('Reservas', 'custom-admin-dashboard'),
+            'documentos' => __('Documentos', 'custom-admin-dashboard'),
+        );
+        ?>
+        <section class="cad-user-related-section">
+            <div class="cad-user-related-tabs" data-cad-tabs>
+                <div class="cad-user-related-tabs__nav" role="tablist" aria-label="<?php esc_attr_e('Contenido relacionado', 'custom-admin-dashboard'); ?>">
+                    <?php $index = 0; ?>
+                    <?php foreach ($tabs as $slug => $label) : ?>
+                        <?php $tab_id = 'cad-user-tab-' . (int) $user_id . '-' . $slug; ?>
+                        <button
+                            type="button"
+                            class="cad-user-related-tabs__button<?php echo $index === 0 ? ' is-active' : ''; ?>"
+                            id="<?php echo esc_attr($tab_id . '-button'); ?>"
+                            data-tab-target="<?php echo esc_attr($tab_id); ?>"
+                            role="tab"
+                            aria-controls="<?php echo esc_attr($tab_id); ?>"
+                            aria-selected="<?php echo $index === 0 ? 'true' : 'false'; ?>"
+                        >
+                            <?php echo esc_html($label); ?>
+                        </button>
+                        <?php $index++; ?>
+                    <?php endforeach; ?>
+                </div>
+
+                <?php $index = 0; ?>
+                <?php foreach ($tabs as $slug => $label) : ?>
+                    <?php
+                    $tab_id = 'cad-user-tab-' . (int) $user_id . '-' . $slug;
+                    $has_custom_content = has_action('cad_user_management_tab_content_' . $slug) || has_action('cad_user_management_tab_content');
+                    ?>
+                    <section
+                        class="cad-user-related-tabs__panel<?php echo $index === 0 ? ' is-active' : ''; ?>"
+                        id="<?php echo esc_attr($tab_id); ?>"
+                        role="tabpanel"
+                        aria-labelledby="<?php echo esc_attr($tab_id . '-button'); ?>"
+                        <?php echo $index === 0 ? '' : 'hidden'; ?>
+                    >
+                        <?php
+                        do_action('cad_user_management_tab_content', $slug, $user_id, $user);
+                        do_action('cad_user_management_tab_content_' . $slug, $user_id, $user);
+                        ?>
+                        <?php if (! $has_custom_content) : ?>
+                            <p class="description">
+                                <?php
+                                printf(
+                                    /* translators: %s: tab label */
+                                    esc_html__('Contenido pendiente para la pestaña %s.', 'custom-admin-dashboard'),
+                                    esc_html($label)
+                                );
+                                ?>
+                            </p>
+                        <?php endif; ?>
+                    </section>
+                    <?php $index++; ?>
+                <?php endforeach; ?>
+            </div>
+        </section>
         <?php
     }
 
@@ -765,7 +1065,7 @@ class CAD_User_Manager {
         >
             <?php esc_html_e('Quitar', 'custom-admin-dashboard'); ?>
         </button>
-        <div id="cad-image-preview-<?php echo esc_attr($meta_key); ?>" style="margin-top:10px;">
+        <div id="cad-image-preview-<?php echo esc_attr($meta_key); ?>" class="cad-image-preview">
             <?php echo $preview_html ? wp_kses_post($preview_html) : ''; ?>
         </div>
         <p class="description"><?php esc_html_e('Este campo guarda el ID de la imagen en ACF (profile_pic).', 'custom-admin-dashboard'); ?></p>
@@ -919,6 +1219,242 @@ class CAD_User_Manager {
     }
 
     /**
+     * Print shared styles for user manager screens.
+     */
+    private function render_user_manager_styles() {
+        ?>
+        <style id="cad-user-manager-styles">
+            .cad-user-list-toolbar {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 12px;
+                align-items: flex-end;
+                margin: 16px 0;
+            }
+            .cad-user-list-toolbar .search-box {
+                float: none;
+                margin: 0;
+                flex: 1 1 260px;
+            }
+            .cad-user-list-toolbar .search-box input[type="search"] {
+                width: 100%;
+                max-width: 100%;
+            }
+            .cad-user-list-toolbar__filters {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 8px;
+                align-items: center;
+            }
+            .cad-user-list-toolbar__actions {
+                display: flex;
+                gap: 8px;
+                align-items: center;
+            }
+            .cad-users-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+                gap: 16px;
+                margin-top: 16px;
+            }
+            .cad-user-card {
+                background: #fff;
+                border: 1px solid #dcdcde;
+                border-radius: 8px;
+                padding: 16px;
+            }
+            .cad-user-card__header {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+            }
+            .cad-user-card__photo {
+                width: 56px;
+                height: 56px;
+                border-radius: 50%;
+                object-fit: cover;
+                flex-shrink: 0;
+            }
+            .cad-user-card__name {
+                margin: 0;
+                font-size: 16px;
+                line-height: 1.2;
+            }
+            .cad-user-card__email {
+                margin: 4px 0 0;
+                color: #646970;
+                word-break: break-word;
+            }
+            .cad-user-card__meta {
+                margin-top: 14px;
+                display: flex;
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+            .cad-user-pill {
+                display: inline-flex;
+                align-items: center;
+                padding: 4px 10px;
+                border-radius: 999px;
+                font-size: 12px;
+                font-weight: 600;
+                line-height: 1.4;
+                background: #f0f0f1;
+            }
+            .cad-user-pill.is-active {
+                background: #e7f7ed;
+                color: #1f7a3b;
+            }
+            .cad-user-pill.is-inactive {
+                background: #fbeaea;
+                color: #8a2424;
+            }
+            .cad-user-pill.is-internal {
+                background: #e8f0fe;
+                color: #1f4db8;
+            }
+            .cad-user-pill.is-external {
+                background: #fff4d9;
+                color: #6f4b00;
+            }
+            .cad-user-card__actions {
+                margin: 14px 0 0;
+            }
+
+            .cad-user-edit-layout {
+                display: grid;
+                grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+                gap: 20px;
+                margin-top: 12px;
+                align-items: start;
+            }
+            .cad-user-edit-layout__left,
+            .cad-user-edit-layout__right {
+                background: #fff;
+                border: 1px solid #dcdcde;
+                border-radius: 8px;
+                padding: 16px;
+            }
+            .cad-user-photo-editor__preview {
+                width: 180px;
+                height: 180px;
+                border-radius: 12px;
+                overflow: hidden;
+                background: #f6f7f7;
+                margin-bottom: 12px;
+                border: 1px solid #dcdcde;
+            }
+            .cad-user-photo-editor__preview img {
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+                display: block;
+            }
+            .cad-user-photo-editor__actions {
+                display: flex;
+                gap: 8px;
+                flex-wrap: wrap;
+            }
+            .cad-user-summary-name {
+                margin: 16px 0 4px;
+                font-size: 28px;
+                line-height: 1.2;
+            }
+            .cad-user-summary-email {
+                margin: 0;
+                color: #646970;
+                word-break: break-word;
+            }
+            .cad-user-summary-type {
+                margin: 12px 0 0;
+            }
+            .cad-user-type-badge {
+                display: inline-block;
+                margin-left: 6px;
+                padding: 4px 10px;
+                border-radius: 999px;
+                background: #2271b1;
+                color: #fff;
+                font-size: 12px;
+                line-height: 1.4;
+            }
+            .cad-user-fields-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+                gap: 12px;
+            }
+            .cad-user-field {
+                display: flex;
+                flex-direction: column;
+                gap: 6px;
+            }
+            .cad-user-field__label {
+                font-weight: 600;
+            }
+            .cad-user-field__input,
+            .cad-user-fields-grid input[type="text"],
+            .cad-user-fields-grid input[type="email"],
+            .cad-user-fields-grid textarea {
+                width: 100%;
+                max-width: 100%;
+            }
+            .cad-image-preview {
+                margin-top: 10px;
+            }
+            .cad-image-preview img {
+                max-width: 120px;
+                height: auto;
+                display: block;
+            }
+
+            .cad-user-related-section {
+                margin-top: 20px;
+            }
+            .cad-user-related-tabs {
+                background: #fff;
+                border: 1px solid #dcdcde;
+                border-radius: 8px;
+                padding: 12px;
+            }
+            .cad-user-related-tabs__nav {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 8px;
+                margin-bottom: 12px;
+            }
+            .cad-user-related-tabs__button {
+                border: 1px solid #c3c4c7;
+                background: #f6f7f7;
+                border-radius: 6px;
+                padding: 6px 12px;
+                cursor: pointer;
+            }
+            .cad-user-related-tabs__button.is-active {
+                border-color: #2271b1;
+                background: #edf5ff;
+                color: #1d4f92;
+            }
+            .cad-user-related-tabs__panel {
+                display: none;
+            }
+            .cad-user-related-tabs__panel.is-active {
+                display: block;
+            }
+
+            @media (max-width: 960px) {
+                .cad-user-edit-layout {
+                    grid-template-columns: 1fr;
+                }
+                .cad-user-photo-editor__preview {
+                    width: 140px;
+                    height: 140px;
+                }
+            }
+        </style>
+        <?php
+    }
+
+    /**
      * Print media picker and flatpickr initializer inline script.
      */
     private function render_admin_inline_script() {
@@ -936,7 +1472,7 @@ class CAD_User_Manager {
                     return;
                 }
 
-                $preview.html('<img src="' + url + '" alt="" style="max-width:120px;height:auto;" />');
+                $preview.html('<img src="' + url + '" alt="" />');
             }
 
             $(document).on('click', '.cad-image-upload', function(e){
@@ -1075,6 +1611,76 @@ class CAD_User_Manager {
                 });
             }
         })(jQuery);
+        </script>
+        <?php
+    }
+
+    /**
+     * Print user edit interactions (tabs + summary sync).
+     */
+    private function render_user_edit_script() {
+        ?>
+        <script>
+        (function(){
+            var tabContainers = document.querySelectorAll('[data-cad-tabs]');
+            if (tabContainers.length) {
+                tabContainers.forEach(function(container) {
+                    var buttons = container.querySelectorAll('.cad-user-related-tabs__button');
+                    var panels = container.querySelectorAll('.cad-user-related-tabs__panel');
+
+                    var activateTab = function(targetId) {
+                        buttons.forEach(function(button) {
+                            var isActive = button.getAttribute('data-tab-target') === targetId;
+                            button.classList.toggle('is-active', isActive);
+                            button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+                        });
+
+                        panels.forEach(function(panel) {
+                            var isActive = panel.id === targetId;
+                            panel.classList.toggle('is-active', isActive);
+                            if (isActive) {
+                                panel.removeAttribute('hidden');
+                            } else {
+                                panel.setAttribute('hidden', 'hidden');
+                            }
+                        });
+                    };
+
+                    buttons.forEach(function(button) {
+                        button.addEventListener('click', function() {
+                            var targetId = button.getAttribute('data-tab-target');
+                            if (!targetId) {
+                                return;
+                            }
+                            activateTab(targetId);
+                        });
+                    });
+                });
+            }
+
+            var nameInput = document.getElementById('cad-field-name');
+            var emailInput = document.getElementById('cad-field-email');
+            var nameOutput = document.getElementById('cad-user-summary-name');
+            var emailOutput = document.getElementById('cad-user-summary-email');
+
+            var syncSummary = function() {
+                if (nameInput && nameOutput) {
+                    var nextName = nameInput.value.trim();
+                    nameOutput.textContent = nextName !== '' ? nextName : '-';
+                }
+                if (emailInput && emailOutput) {
+                    var nextEmail = emailInput.value.trim();
+                    emailOutput.textContent = nextEmail !== '' ? nextEmail : '-';
+                }
+            };
+
+            if (nameInput && nameOutput) {
+                nameInput.addEventListener('input', syncSummary);
+            }
+            if (emailInput && emailOutput) {
+                emailInput.addEventListener('input', syncSummary);
+            }
+        })();
         </script>
         <?php
     }
@@ -1349,10 +1955,10 @@ class CAD_User_Manager {
      *
      * @return string
      */
-    private function get_image_preview_url($value) {
+    private function get_image_preview_url($value, $size = 'thumbnail') {
         $attachment_id = $this->normalize_image_attachment_id($value);
         if ($attachment_id !== '') {
-            $url = wp_get_attachment_image_url((int) $attachment_id, 'thumbnail');
+            $url = wp_get_attachment_image_url((int) $attachment_id, $size);
             if (! is_string($url) || $url === '') {
                 $url = wp_get_attachment_url((int) $attachment_id);
             }
